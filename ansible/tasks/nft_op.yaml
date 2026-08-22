@@ -1,0 +1,21 @@
+---
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Applies an nft operation on the server
+########################################################
+- name: Firewall Subtask - Copy operation {{ op }}
+  ansible.builtin.copy:
+    src: "{{ nftops[op] }}"
+    dest: "/etc/nftables.d/{{ op }}.nft"
+    owner: root
+    group: root
+    mode: "0600"
+########################################################
+- name: Firewall Subtask - Apply operation {{ op }}
+  ansible.builtin.command:
+    argv:
+      - nft
+      - -f
+      - "/etc/nftables.d/{{ op }}.nft"
+  changed_when: true
+########################################################

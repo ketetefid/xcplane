@@ -1,0 +1,9 @@
+Package: xcplane
+Version: @VERSION@
+Architecture: amd64
+Maintainer: Kete Tefid <ketetefid@gmail.com>
+Priority: optional
+Section: utils
+Depends: libsqlite3-0, libc6 (>= 2.29)
+Homepage: https://github.com/ketetefid/xcplane
+Description: Infrastructure control plane for a privacy-first server fleet

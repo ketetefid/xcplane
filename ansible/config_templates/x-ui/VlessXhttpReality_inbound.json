@@ -1,0 +1,108 @@
+{
+    "up": 0,
+    "down": 0,
+    "total": 0,
+
+    "remark": "{{ the_inbound.name }}",
+    "enable": true,
+    "expiryTime": 0,
+    "listen": "",
+    "port": {{ the_inbound.port }},
+    "protocol": "vless",
+
+    "settings": {
+	"clients": [
+	    {
+		"id": "{{ mother_client_uuid }}",
+		"flow": "",
+		"email": "{{ mother_client_email }}",
+		"limitIp": 0,
+		"totalGB": {{ mother_client_totalGB }},
+		"expiryTime": {{ mother_client_expiry }},
+		"enable": true,
+		"tgId": "",
+		"subId": "{{ mother_client_subid }}",
+		"comment": "{{ mother_client_comment }}",
+		"reset": 0,
+		"auth": "{{ mother_client_auth }}",
+		"password": "{{ mother_client_password }}"
+	    }
+	],
+	"decryption": "none",
+	"encryption": "none",
+	"testseed": [
+            900,
+            500,
+            900,
+            256
+        ]
+    },
+
+    "streamSettings": {
+	"network": "xhttp",
+
+	"xhttpSettings": {
+          "path": "/static/js/app",
+          "host": "",
+          "mode": "auto",
+          "xPaddingBytes": "100-1000",
+          "xPaddingObfsMode": false,
+          "xPaddingKey": "",
+          "xPaddingHeader": "",
+          "xPaddingPlacement": "",
+          "xPaddingMethod": "",
+          "sessionPlacement": "",
+          "sessionKey": "",
+          "seqPlacement": "",
+          "seqKey": "",
+          "uplinkDataPlacement": "",
+          "uplinkDataKey": "",
+          "scMaxEachPostBytes": "1000000",
+          "noSSEHeader": false,
+          "scMaxBufferedPosts": 30,
+          "scStreamUpServerSecs": "20-80",
+          "serverMaxHeaderBytes": 0,
+          "uplinkHTTPMethod": "",
+          "headers": {},
+          "scMinPostsIntervalMs": "30",
+          "uplinkChunkSize": 0,
+          "noGRPCHeader": false,
+          "enableXmux": false
+        },
+
+	"security": "reality",
+        "realitySettings": {
+            "maxClientVer": "",
+            "maxTimediff": 0,
+            "minClientVer": "",
+            "mldsa65Seed": "",
+            "privateKey": "{{ inbound_private_key }}",
+            "serverNames": [
+		"www.amd.com"
+            ],
+            "settings": {
+		"fingerprint": "chrome",
+		"mldsa65Verify": "",
+		"publicKey": "{{ inbound_public_key }}",
+		"serverName": "",
+		"spiderX": "/"
+            },
+            "shortIds": {{ reality_short_ids | to_json }},
+            "show": false,
+            "target": "www.amd.com:443",
+            "xver": 0
+        }
+    },
+
+    "sniffing": {
+	"enabled": false,
+	"destOverride": [
+	    "http",
+	    "tls",
+	    "quic",
+	    "fakedns"
+	],
+	"metadataOnly": false,
+	"routeOnly": false
+    }
+}

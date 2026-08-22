@@ -1,0 +1,233 @@
+---
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# The Rust program provides these already validated variables through
+# --extra-vars option for Ansible calls. Having said that, we fully check
+# everything again (only Optional data can remain unchecked). The only item that
+# is not evaluated here is 'extra' variable since it can contain arbitrary data.
+
+# pub struct AnsibleVars {
+#     pub ansible_tasks: Vec<&'static str>, // vector of tasks to be performed
+#     pub full_setup: bool,                 // is this a full setup
+#     pub data_dir: PathBuf,                // workspace.dirs.data_dir
+#     pub node_name: String,                // ketserver.name
+#     pub base_hostname: String,            // ketserver.domain
+#     pub node_region: String,              // ketserver.region
+#     pub ssh_port: u16,                    // ketserver.ssh_port
+#     pub dns_subdomain: String,            // ketserver.dns_subdomain
+#     pub ui_subdomain: String,             // ketserver.ui_subdomain
+#     pub sub_subdomain: String,            // ketserver.sub_subdomain
+#     pub secrets: Secrets,                 // ketserver.secrets
+#     pub cloudflare_proxied: bool,         // ketserver.cloudflare_proxied
+#     pub cloudflare_state: Arc<CFState>,   // ketserver.cfstate
+#     pub unbound_https_port: u16,          // defaults to UNBOUND_PORT
+#     pub ui_webport: u16,                  // defaults to UI_PORT
+#     pub sub_port: u16,                    // defaults to SUB_PORT
+#     pub nftops: HashMap<String, PathBuf>, // paths to all nft rule files
+#     pub inbound_data: Vec<Inbound>,       // ketserver.inbounds
+#     pub rebase_data: Option<RebaseData>,  // generated when reconciliation
+#     pub extra: HashMap<String, serde_json::Value>,
+# }
+
+##########################################################
+- name: Checking Task 1 - Ensure the server is Ubuntu 24.04 or newer
+  ansible.builtin.assert:
+    that:
+      - ansible_facts["distribution"] == "Ubuntu"
+      - ansible_facts["distribution_version"] is version("24.04", ">=")
+    fail_msg: >-
+      This automation requires Ubuntu 24.04 or newer.
+      Detected {{ ansible_facts["distribution"] }}
+      {{ ansible_facts["distribution_version"] }}.
+##########################################################
+- name: Checking Task 2 - Ensure that the needed data are present - general data part 1
+  ansible.builtin.assert:
+    that:
+      - data_dir is defined
+      - data_dir is string
+      - data_dir | trim | length > 0
+      - data_dir.startswith('/') # expect an absolute pathbuf
+
+      - full_setup is boolean
+
+      - ansible_tasks is defined
+      - ansible_tasks is sequence
+      - ansible_tasks | length > 0
+      - ansible_tasks | select('string') | list | length == ansible_tasks | length
+      - ansible_tasks | length == (ansible_tasks | unique | length)
+
+      - node_name is defined
+      - node_name is string
+      - node_name | trim | length > 0 # the server name
+      - node_name is match ('^[a-zA-Z0-9](?:[a-zA-Z0-9_]*[a-zA-Z0-9])?$')
+
+      - base_hostname is defined # the domain itself
+      - base_hostname is string
+      - base_hostname | trim | length > 0
+      - base_hostname is match ('^([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)*[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])$')
+
+      - dns_subdomain is defined
+      - dns_subdomain is string
+      - dns_subdomain | trim | length > 0
+      - (dns_subdomain | trim) is match('^(?=.{1,63}$)[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$')
+
+      - ui_subdomain is defined
+      - ui_subdomain is string
+      - ui_subdomain | trim | length > 0
+      - (ui_subdomain | trim) is match('^(?=.{1,63}$)[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$')
+
+      - sub_subdomain is defined
+      - sub_subdomain is string
+      - sub_subdomain | trim | length > 0
+      - (sub_subdomain | trim) is match('^(?=.{1,63}$)[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$')
+
+      - secrets.health_path is defined
+      - secrets.health_path is string
+      - secrets.health_path | trim | length > 15 # a 16 char random string
+
+      - secrets.doh_endpoint is defined
+      - secrets.doh_endpoint is string
+      - secrets.doh_endpoint | trim | length > 20 # 16 random bytes (128 bits) encoded in base64
+
+      - secrets.xui_username is defined
+      - secrets.xui_username is string
+      - secrets.xui_username | trim | length > 6
+
+      - secrets.xui_password is defined
+      - secrets.xui_password is string
+      - secrets.xui_password | trim | length > 10
+
+      - secrets.xui_webpath is defined
+      - secrets.xui_webpath is string
+      - secrets.xui_webpath | trim | length > 6
+
+      - secrets.xui_subpath is defined
+      - secrets.xui_subpath is string
+      - secrets.xui_subpath | trim | length > 6
+
+      - secrets.xui_jsubpath is defined
+      - secrets.xui_jsubpath is string
+      - secrets.xui_jsubpath | trim | length > 6
+
+      - node_region is defined
+      - node_region is string
+      - node_region is match ('^[A-Z]{2}$') # the two-letter country code
+
+      - sublinks_suffix is defined
+      - sublinks_suffix is string
+      - sublinks_suffix | trim | length > 0
+
+      - jsublinks_suffix is defined
+      - jsublinks_suffix is string
+      - jsublinks_suffix | trim | length > 0
+
+      - ssh_port is number
+      - unbound_https_port is number # the https port at which the unbound service will run
+      - ui_webport is number # the port at which the 3x-ui web service will run
+      - sub_port is number # the port at which the 3x-ui sub service will run
+
+      - nftops is defined # containing the dict of nft names -> nft path
+
+      - cloudflare_proxied is boolean
+
+      - cloudflare_state.zone_name is defined
+      - cloudflare_state.zone_name is string
+      - cloudflare_state.zone_name | trim | length > 0
+
+      - cloudflare_state.zone_id is defined
+      - cloudflare_state.zone_id is string
+      - cloudflare_state.zone_id | trim | length > 0
+
+      - cloudflare_state.cloudflare_only is boolean
+##########################################################
+- name: Checking Task 3.1 - Define derived variables part 1
+  ansible.builtin.set_fact:
+    configs_path: "{{ playbook_dir }}/config_templates"
+    runas: root
+    remote_path: "/root/ansible_{{ inventory_hostname }}"
+    userhome: "{{ lookup('ansible.builtin.env', 'HOME') }}"
+    pvenv: '/usr/local/bin/venv/'
+    local_path: "{{ data_dir }}/{{ inventory_hostname }}"
+    dns_hostname: "{{ dns_subdomain }}.{{ base_hostname }}"
+    ui_hostname: "{{ ui_subdomain }}.{{ base_hostname }}"
+    sub_hostname: "{{ sub_subdomain }}.{{ base_hostname }}"
+    # 3X-UI is a fast-moving project and sometimes API mismatches or bugs
+    # appear. We select a tested, working, up-to-date-enough version here, and
+    # the user can later upgrade the panel to the latest if they wish.
+    xui_version: v3.4.2
+    cloudflare_token: "{{ lookup('env', 'CF_API_TOKEN') }}" # the Rust program exports it
+    acme_directory: https://acme-v02.api.letsencrypt.org/directory
+    # acme_directory: https://acme-staging-v02.api.letsencrypt.org/directory
+    cloudflare_zone: "{{ cloudflare_state.zone_name }}"
+    cloudflare_zone_id: "{{ cloudflare_state.zone_id }}"
+    cloudflare_only: "{{ cloudflare_state.cloudflare_only }}"
+##########################################################
+- name: Checking Task 3.2 - Get the Cloudflare list data for fail2ban if it is defined
+  ansible.builtin.set_fact:
+    cloudflare_list: "{{ cloudflare_state.list_data.list_id }}"
+    cloudflare_account: "{{ cloudflare_state.list_data.account_id }}"
+  when: cloudflare_state.list_data is defined
+##########################################################
+- name: Checking Task 4 - Ensure that the needed data are present - general data part 2
+  ansible.builtin.assert:
+    that:
+      - userhome | trim | length > 0  # userhome must be defined and non-empty
+      - cloudflare_token | trim | length > 20 # cloudflare token must be a valid one
+##########################################################
+- name: Checking Task 5 - Ensure that the needed data are present - inbound data
+  block:
+    - name: Var Checking Task 5.1 - Ensure inbound_data variables have proper structure
+      ansible.builtin.assert:
+        that:
+          - inbound_data is defined
+          - inbound_data | length > 0
+          - inbound_data is sequence
+
+          - item.name is defined # inbound name
+          - item.name is string
+          - item.name | trim | length > 0
+          - item.name is match ('^[a-zA-Z0-9](?:[a-zA-Z0-9_]*[a-zA-Z0-9])?$')
+
+          - item.total is number
+
+          - item.kind is defined
+          - item.kind is string
+          - item.kind | trim | length > 0
+
+          - item.port is number
+          - item.port is not in [ ssh_port, ui_webport, sub_port, unbound_https_port ]
+
+          - item.traffic is number
+          - item.expiry is number
+
+          - item.comment is defined
+          - item.comment is string
+
+          - secrets.mother_subids[item.name] is string
+          - secrets.mother_subids[item.name] | length > 0
+      loop: "{{ inbound_data }}"
+      loop_control:
+        label: "Validating input data for inbound {{ item.name }}"
+
+    - name: Var Checking Task 5.2 - Ensure inbound names (remarks) are unique
+      ansible.builtin.assert:
+        that:
+          - >
+            inbound_data | map(attribute='name') | list | unique | length
+            == inbound_data | length
+        fail_msg: "Duplicate inbound names (remarks) detected."
+
+    - name: Var Checking Task 5.3 - Ensure inbound ports are unique
+      ansible.builtin.assert:
+        that:
+          - >
+            inbound_data | map(attribute='port') | list | unique | length
+            == inbound_data | length
+        fail_msg: "Duplicate inbound ports detected."
+##########################################################
+- name: Checking Task 6 - Ensure remote_path has strict permissions
+  ansible.builtin.file:
+    path: "{{ remote_path }}"
+    state: directory
+    mode: '0700'
+##########################################################

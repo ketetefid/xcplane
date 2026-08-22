@@ -1,0 +1,30 @@
+---
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Uses header-based authorization to talk to the application panel
+##########################################################
+# When 3XUI is installed, in full setup xui_token is not immediately available
+# in secrets. However, for subsequent Ansible runs, it is stored in the server
+# secrets and is defined as an Ansible var.
+- name: Task 1 - Credential loading
+  block:
+    - name: 3X-UI Auth Task 1 - Set the credentials
+      ansible.builtin.set_fact:
+        xui_url: "http://localhost:{{ ui_webport }}/{{ secrets.xui_webpath }}/"
+        xui_url_global: "https://{{ ui_hostname }}/{{ secrets.xui_webpath }}/"
+        xui_username: "{{ secrets.xui_username }}"
+        xui_password: "{{ secrets.xui_password }}"
+        xui_token: "{{ secrets.xui_token }}"
+      when: secrets.xui_token is defined
+
+    - name: 3X-UI Auth Task 1 - Load the credentials
+      ansible.builtin.include_vars:
+        file: "{{ local_path }}/xui_credentials.yaml"
+      when: secrets.xui_token is not defined
+##########################################################
+- name: 3X-UI Auth Task 2 - Store the headers for authentication
+  ansible.builtin.set_fact:
+    xui_auth_headers:
+      Content-Type: "application/json"
+      Authorization: "Bearer {{ xui_token }}"
+##########################################################

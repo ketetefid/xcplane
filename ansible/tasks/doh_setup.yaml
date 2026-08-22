@@ -1,0 +1,117 @@
+---
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Prepares the DoH server
+########################################################
+- name: DoH Task 1 - Install the prerequisites
+  ansible.builtin.apt:
+    pkg:
+      - dnscrypt-proxy
+      - unbound
+      - dnsutils
+      - python3-pip
+      - python3-virtualenv
+########################################################
+- name: DoH Task 2 - Deleting unbound.conf.d
+  ansible.builtin.file:
+    path: /etc/unbound/unbound.conf.d
+    state: absent
+########################################################
+- name: DoH Task 3 - Pushing the current unbound config template
+  ansible.builtin.template:
+    src: "{{ configs_path }}/unbound.conf"
+    dest: /etc/unbound/
+    mode: '0644'
+    owner: root
+    group: root
+########################################################
+- name: DoH Task 4 - Fetch the modified unbound config file for reference
+  ansible.posix.synchronize:
+    src: '/etc/unbound/unbound.conf'
+    dest: "{{ local_path }}/"
+    mode: pull
+    checksum: true
+########################################################
+- name: DoH Task 5 - Restart the unbound server
+  ansible.builtin.systemd_service:
+    state: restarted
+    daemon_reload: false
+    name: unbound
+########################################################
+- name: Task block 6
+  block:
+    - name: DoH Task 6.1 - Check the virtualenv health
+      ansible.builtin.command:
+        cmd: "{{ pvenv }}/bin/python --version"
+      register: venv_check
+      changed_when: false
+      failed_when: false
+
+    - name: DoH Task 6.2 - Remove broken virtualenv
+      ansible.builtin.file:
+        path: "{{ pvenv }}"
+        state: absent
+      when: venv_check.rc != 0
+
+    - name: DoH Task 6.3 - Install dnsstamp python module in venv {{ pvenv }}
+      ansible.builtin.pip:
+        name: dnsstamps
+        virtualenv: "{{ pvenv }}"
+########################################################
+- name: Task block 7
+  block:
+    - name: DoH Task 7.1 - Create the DNS stamp
+      ansible.builtin.command: "{{ pvenv }}/bin/python {{ pvenv }}/bin/dnsstamp.py doh -s -l -f -n {{ dns_hostname }} -p /{{ secrets.doh_endpoint }}"
+      register: dns_stamp_string
+      changed_when: dns_stamp_string.rc == 0
+
+    - name: DoH Task 7.2 - Store the DNS stamp
+      ansible.builtin.set_fact:
+        sdns_stamp: "{{ dns_stamp_string.stdout_lines[-1] }}"
+########################################################
+- name: DoH Task 8 - Template the dnscrypt config
+  ansible.builtin.template:
+    src: "{{ configs_path }}/dnscrypt-proxy.toml"
+    dest: '/etc/dnscrypt-proxy/'
+    mode: '0644'
+    owner: root
+    group: root
+########################################################
+- name: DoH Task 9 - Fetch the modified dnscrypt-proxy config file
+  ansible.posix.synchronize:
+    src: '/etc/dnscrypt-proxy/dnscrypt-proxy.toml'
+    dest: "{{ local_path }}/"
+    mode: pull
+    checksum: true
+########################################################
+- name: DoH Task 10 - Flush the DNS cache
+  ansible.builtin.command: "resolvectl flush-caches"
+  register: flush_dns
+  changed_when: flush_dns.rc == 0
+  # Some systems don't have systemd-resolved enabled
+  failed_when: false
+########################################################
+- name: DoH Task 11 - Restart dnscrypt-proxy service
+  ansible.builtin.systemd_service:
+    state: restarted
+    daemon_reload: false
+    name: dnscrypt-proxy
+########################################################
+- name: DoH Task 12 - Wait for dnscrypt-proxy to be functional
+  ansible.builtin.command: dig @127.0.2.1 google.com +short
+  register: dns_test
+  until: dns_test.rc == 0 and dns_test.stdout != ""
+  retries: 10
+  delay: 2
+  changed_when: false
+########################################################
+- name: DoH Task 13 - Hard-set resolv.conf to the DoH server
+  ansible.builtin.copy:
+    dest: '/etc/resolv.conf'
+    content: |
+      # Managed by xcplane-ansible
+      nameserver 127.0.2.1
+    owner: root
+    group: root
+    mode: '0644'
+########################################################

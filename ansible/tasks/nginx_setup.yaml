@@ -1,0 +1,117 @@
+---
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Installs Nginx according to the official source
+########################################################
+- name: Nginx Task 1 - Install the prerequisites
+  ansible.builtin.apt:
+    pkg:
+      - curl
+      - gnupg2
+      - ca-certificates
+      - lsb-release
+      - ubuntu-keyring
+########################################################
+- name: Nginx Task 2 - Download the official signing key
+  ansible.builtin.get_url:
+    url: 'https://nginx.org/keys/nginx_signing.key'
+    dest: '/tmp/nginx_signing.key'
+    mode: '0644'
+########################################################
+- name: Nginx Task 3 - Convert the signing key to gpg keyring
+  ansible.builtin.command:
+    cmd: gpg --dearmor -o /usr/share/keyrings/nginx-archive-keyring.gpg /tmp/nginx_signing.key
+    creates: '/usr/share/keyrings/nginx-archive-keyring.gpg'
+########################################################
+- name: Nginx Task 4.1 - Ensure GNUPG home exists
+  ansible.builtin.file:
+    path: /root/.gnupg
+    state: directory
+    mode: "0700"
+########################################################
+- name: Nginx Task 4.2 - Verify the signing key fingerprint
+  ansible.builtin.command:
+    cmd: >
+      gpg --dry-run --quiet --no-keyring
+      --import --import-options import-show
+      /usr/share/keyrings/nginx-archive-keyring.gpg
+  register: nginx_key_check
+  changed_when: false
+  failed_when: "'573BFD6B3D8FBC641079A6ABABF5BD827BD9BF62' not in nginx_key_check.stdout"
+########################################################
+- name: Nginx Task 5 - Add the official repository
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by=/usr/share/keyrings/nginx-archive-keyring.gpg] \
+    https://nginx.org/packages/ubuntu {{ ansible_facts.distribution_release }} nginx"
+    filename: nginx
+    state: present
+    update_cache: true
+########################################################
+- name: Nginx Task 6 - Configure apt pinning
+  ansible.builtin.copy:
+    dest: '/etc/apt/preferences.d/99nginx'
+    mode: '0644'
+    content: |
+      Package: *
+      Pin: origin nginx.org
+      Pin: release o=nginx
+      Pin-Priority: 900
+########################################################
+- name: Nginx Task 7 - apt update & install nginx
+  ansible.builtin.apt:
+    name: nginx
+    update_cache: true
+########################################################
+- name: Nginx Task 8 - Add DNS, UI and sub hostnames early to /etc/hosts
+  ansible.builtin.blockinfile:
+    path: /etc/hosts
+    marker: "# {mark} Ansible-managed Nginx hosts"
+    block: |
+      127.0.0.1 {{ dns_hostname }} # dns_hostname
+      ::1 {{ dns_hostname }} # dns_hostname
+      127.0.0.1 {{ ui_hostname }} # ui_hostname
+      ::1 {{ ui_hostname }} # ui_hostname
+      127.0.0.1 {{ sub_hostname }} # sub_hostname
+      ::1 {{ sub_hostname }} # sub_hostname
+    state: present
+########################################################
+- name: Nginx Task 9 - Remove /etc/nginx/conf.d and any extra configs
+  ansible.builtin.file:
+    path: /etc/nginx/conf.d
+    state: absent
+########################################################
+- name: Nginx Task 10 - Create /etc/nginx/conf.d fresh
+  ansible.builtin.file:
+    path: /etc/nginx/conf.d
+    state: directory
+    mode: '0755'
+########################################################
+- name: Nginx Task 11.1 - Copy Nginx include file
+  ansible.builtin.copy:
+    src: "{{ configs_path }}/nginx/cloudflare_allow.inc"
+    dest: '/etc/nginx/conf.d'
+    owner: root
+    group: root
+    mode: '0644'
+########################################################
+- name: Nginx Task 11.2 - Template the nginx config to the server
+  ansible.builtin.template:
+    src: "{{ configs_path }}/nginx/nginx_dns_ui_sub_server.conf"
+    dest: '/etc/nginx/conf.d'
+    owner: root
+    group: root
+    mode: '0644'
+########################################################
+- name: Nginx Task 12 - Restart the Nginx server
+  ansible.builtin.systemd_service:
+    state: restarted
+    daemon_reload: false
+    name: nginx
+########################################################
+- name: Nginx Task 13 - Fetch the modified nginx config file for reference
+  ansible.posix.synchronize:
+    src: '/etc/nginx/conf.d/nginx_dns_ui_sub_server.conf'
+    dest: "{{ local_path }}/"
+    mode: pull
+    checksum: true
+########################################################

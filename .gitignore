@@ -1,0 +1,8 @@
+/target/
+/Cargo.lock
+
+# xcplane runtime/local state
+*.db
+*.db-shm
+*.db-wal
+cloud.toml

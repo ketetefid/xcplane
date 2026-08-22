@@ -1,0 +1,20 @@
+pkgname=xcplane
+pkgver=@VERSION@
+pkgrel=1
+pkgdesc="Infrastructure control plane for a privacy-first server fleet"
+arch=('x86_64')
+url="https://github.com/ketetefid/xcplane"
+license=('GPL-3.0-or-later')
+depends=('glibc' 'sqlite')
+makedepends=('cargo')
+source=("$pkgname-$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+build() {
+  cd "$srcdir/$pkgname-$pkgver"
+  cargo build --release
+}
+
+package() {
+  install -Dm755 "$srcdir/$pkgname-$pkgver/target/release/xcplane" "$pkgdir/usr/bin/xcplane"
+}

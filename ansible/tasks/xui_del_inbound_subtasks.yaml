@@ -1,0 +1,43 @@
+---
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+##########################################################
+- name: Del Inbound Subtask 1 - Get all of the inbound(s)
+  ansible.builtin.uri:
+    url: "{{ xui_url }}panel/api/inbounds/list"
+    method: GET
+    body_format: json
+    status_code: [200, 202]
+    return_content: true
+    headers: "{{ xui_auth_headers }}"
+  register: xui_get_inbounds
+##########################################################
+- name: Del Inbound Subtask 2 - Get the inbound IDs and remarks
+  ansible.builtin.set_fact:
+    inbound_id_{{ item.remark }}: "{{ item.id }}"
+    inbound_names: "{{ inbound_names | default([]) + [item.remark] }}"
+  loop: "{{ xui_get_inbounds.json.obj }}"
+  loop_control:
+    label: "Getting DB ID for {{ item.remark }}"
+##########################################################
+- name: Del Inbound Subtask 3 - Call the API and del the inbound
+  ansible.builtin.uri:
+    url: "{{ xui_url }}panel/api/inbounds/del/\
+    {{ lookup('ansible.builtin.vars', 'inbound_id_' ~ the_inbound.name) }}"
+    method: POST
+    status_code: [200, 202]
+    return_content: true
+    headers: "{{ xui_auth_headers }}"
+    body_format: json
+  register: xui_del_inbound
+  failed_when: not xui_del_inbound.json.success
+##########################################################
+- name: Del Inbound Subtask 4 - Pause for a few seconds
+  ansible.builtin.command: sleep 3
+  changed_when: false
+##########################################################
+- name: Del Inbound Subtask 5 - Restart x-ui system service
+  ansible.builtin.systemd_service:
+    state: restarted
+    name: x-ui
+##########################################################

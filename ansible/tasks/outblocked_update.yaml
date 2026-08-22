@@ -1,0 +1,20 @@
+---
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Updates the elements of cloudflare4,6 & outblocked4,6 sets
+########################################################
+- name: Update cloudflare & outbound sets - Select nft operations
+  ansible.builtin.set_fact:
+    oplist:
+      - cloudflare4
+      - cloudflare6
+      - outblocked4
+      - outblocked6
+########################################################
+- name: Update cloudflare & outbound sets - Apply nft operations
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/nft_op.yaml"
+  loop: "{{ oplist }}"
+  loop_control:
+    loop_var: op
+########################################################

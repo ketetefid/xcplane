@@ -1,0 +1,60 @@
+---
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Firewall bootstrap
+#
+# This task will deploy nftables-bootstrap.conf with all the sets, flush all
+# chains if necessary and reload nftables. In other words, it builds only the
+# skeleton of firewall. Since sets might be empty, the input policy is set to
+# accept.
+########################################################
+- name: Firewall Task 1 - Ensure nftables is installed
+  ansible.builtin.apt:
+    pkg:
+      - nftables
+########################################################
+- name: Firewall Task 2 - Ensure /etc/nftables.d exists
+  ansible.builtin.file:
+    path: /etc/nftables.d
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+########################################################
+- name: Firewall Task 3 - Copy rule flusher
+  ansible.builtin.copy:
+    src: "{{ configs_path }}/nft/flush-rules.nft"
+    dest: /etc/nftables.d
+    owner: root
+    group: root
+    mode: '0600'
+########################################################
+- name: Firewall Task 4 - Check if xcplane table exists
+  ansible.builtin.command: nft list table inet xcplane
+  register: xcplane_table
+  changed_when: false
+  failed_when: false
+########################################################
+- name: Firewall Task 5 - Deploy nftables-bootstrap.conf
+  ansible.builtin.template:
+    src: "{{ configs_path }}/nft/nftables-bootstrap.conf"
+    dest: /etc/nftables.conf
+    owner: root
+    group: root
+    mode: '0600'
+    validate: nft --check -f %s
+########################################################
+- name: Firewall Task 6 - Flush rules if xcplane table exits
+  ansible.builtin.command: nft -f /etc/nftables.d/flush-rules.nft
+  when: xcplane_table.rc == 0
+  changed_when: xcplane_table.rc == 0
+########################################################
+# Ansible starts the unit with 'reloaded' if it is stopped
+- name: Firewall Task 7 - Enable and reload nftables systemd service
+  ansible.builtin.systemd_service:
+    state: reloaded
+    enabled: true
+    daemon_reload: true
+    masked: false
+    name: nftables
+########################################################

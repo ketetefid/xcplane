@@ -1,0 +1,1 @@
+{% include the_inbound.kind ~ "_inbound.json" %}

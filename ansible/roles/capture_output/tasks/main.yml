@@ -1,0 +1,26 @@
+---
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+########################################################
+- name: Ensure the required variables are provided
+  ansible.builtin.assert:
+    that:
+      - capture_output_var is defined
+      - capture_output_filename is defined
+    fail_msg: "capture_output_var and capture_output_filename must be provided."
+########################################################
+- name: Write the captured output to the file
+  ansible.builtin.copy:
+    content: "{{ capture_output_var }}"
+    dest: "{{ remote_path | default('/root') }}/{{ capture_output_filename }}"
+    mode: "{{ capture_output_mode | default('0640') }}"
+########################################################
+- name: Fetch the output file
+  ansible.posix.synchronize:
+    src: "{{ remote_path | default('/root') }}/{{ capture_output_filename }}"
+    dest: "{{ local_path | default('./') }}/"
+    mode: pull
+    rsync_opts:
+      - "--chmod=D0700,F{{ capture_output_mode | default('0640') }}"
+    checksum: true
+########################################################

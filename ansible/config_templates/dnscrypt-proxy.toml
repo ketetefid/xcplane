@@ -1,0 +1,7 @@
+# Empty listen_addresses for use with systemd socket activation
+
+server_names = ['xcplane']
+listen_addresses = []
+
+[static.'xcplane']
+stamp = '{{ sdns_stamp }}'

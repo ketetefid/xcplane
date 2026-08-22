@@ -1,0 +1,41 @@
+---
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Performs FullSetup task
+##########################################################
+- name: Prepare the base for 3X-UI installation
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/base_setup.yaml"
+##########################################################
+- name: Install 3X-UI
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/xui_install.yaml"
+##########################################################
+- name: Set up auth headers
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/xui_auth.yaml"
+##########################################################
+- name: Setup the panel
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/xui_setup_panel.yaml"
+##########################################################
+- name: Add the inbound(s)
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/xui_add_inbound.yaml"
+########################################################
+- name: Bootstrap the system
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/bootstrap.yaml"
+########################################################
+- name: Setup fail2ban
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/fail2ban_setup.yaml"
+##########################################################
+- name: Enforce the final firewall
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/firewall.yaml"
+########################################################
+- name: Setup SSH
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/ssh_setup.yaml"
+########################################################

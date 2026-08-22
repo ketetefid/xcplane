@@ -1,0 +1,28 @@
+---
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+##########################################################
+- name: Stop x-ui first
+  ansible.builtin.systemd_service:
+    state: stopped
+    daemon_reload: false
+    name: x-ui
+##########################################################
+- name: Replace x-ui DB with the latest backup provided by the Rust app
+  ansible.posix.synchronize:
+    src: "{{ extra.latest_backup }}"
+    dest: '/etc/x-ui/x-ui.db'
+    mode: push
+    rsync_opts:
+      - "--chown=root:root"
+      - "--chmod=D0755,F0644"
+    owner: false
+    group: false
+    checksum: true
+##########################################################
+- name: Start x-ui again
+  ansible.builtin.systemd_service:
+    state: started
+    daemon_reload: false
+    name: x-ui
+##########################################################

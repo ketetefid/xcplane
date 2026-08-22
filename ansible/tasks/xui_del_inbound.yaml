@@ -1,0 +1,23 @@
+---
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Deletes an inbound in a Rebase operation
+##########################################################
+- name: Del Inbound Task 1 - Iterate over the inbounds given
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/xui_del_inbound_subtasks.yaml"
+  loop: "{{ rebase_data.removed_inbounds }}"
+  loop_control:
+    loop_var: the_inbound
+    label: "Deleting inbound {{ the_inbound.name }}"
+##########################################################
+- name: Del Inbound Task 2 - Update nft set for inbound
+  block:
+    - name: Del Inbound Task 2.1 - Select inbound nft operation
+      ansible.builtin.set_fact:
+        op: inbound
+
+    - name: Del Inbound Task 2.2 - Apply inbound nft operation
+      ansible.builtin.include_tasks:
+        file: "{{ playbook_dir }}/tasks/nft_op.yaml"
+########################################################

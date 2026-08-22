@@ -1,0 +1,37 @@
+---
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+##########################################################
+- name: Remove /etc/nginx/conf.d and any extra configs
+  ansible.builtin.file:
+    path: /etc/nginx/conf.d
+    state: absent
+##########################################################
+- name: Create /etc/nginx/conf.d fresh
+  ansible.builtin.file:
+    path: /etc/nginx/conf.d
+    state: directory
+    mode: '0755'
+##########################################################
+- name: Copy Nginx include file
+  ansible.builtin.copy:
+    src: "{{ configs_path }}/nginx/cloudflare_allow.inc"
+    dest: '/etc/nginx/conf.d'
+    owner: root
+    group: root
+    mode: '0644'
+########################################################
+- name: Template the nginx config to the server
+  ansible.builtin.template:
+    src: "{{ configs_path }}/nginx/nginx_dns_ui_sub_server.conf"
+    dest: '/etc/nginx/conf.d'
+    owner: root
+    group: root
+    mode: '0644'
+########################################################
+- name: Restart the Nginx server
+  ansible.builtin.systemd_service:
+    state: restarted
+    daemon_reload: false
+    name: nginx
+##########################################################

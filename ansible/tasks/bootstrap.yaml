@@ -1,0 +1,42 @@
+---
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Bootstrapping system services
+########################################################
+- name: Bootstrap Task 1 - Copy the executables
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: '0755'
+    owner: root
+    group: root
+  loop:
+    - { src: "{{ configs_path }}/bootstrap/restore_publicDNS.sh", dest: '/usr/local/bin/' }
+    - { src: "{{ configs_path }}/bootstrap/restore_DoH.sh", dest: '/usr/local/bin/' }
+########################################################
+- name: Bootstrap Task 2 - Install update-resolver systemd service
+  ansible.builtin.template:
+    src: "{{ configs_path }}/bootstrap/update-resolver.service"
+    dest: /etc/systemd/system/
+    mode: '0644'
+    owner: root
+    group: root
+########################################################
+- name: Bootstrap Task 3 - Enable all necessary services
+  ansible.builtin.systemd_service:
+    enabled: true
+    daemon_reload: true
+    masked: false
+    name: "{{ item }}"
+  loop:
+    - nginx
+    - dnscrypt-proxy
+    - unbound
+    - update-resolver
+########################################################
+- name: Bootstrap Task 4 - Enforce DoH now by restarting update-resolver service
+  ansible.builtin.systemd_service:
+    state: restarted
+    daemon_reload: false
+    name: update-resolver
+########################################################

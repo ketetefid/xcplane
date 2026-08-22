@@ -1,0 +1,72 @@
+---
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Uses cookie-based authorization for talking to the panel. Since a recent
+# update in 3XUI, all the endpoints are accessible via header-based auth, and
+# this task remains auxiliary.
+##########################################################
+# The credentials are also available in a file
+# ansible.builtin.include_vars:
+#   file: "{{ local_path }}/xui_credentials.yaml"
+- name: 3X-UI Login Task 1 - Load the credentials
+  ansible.builtin.set_fact:
+    xui_url: "http://localhost:{{ ui_webport }}/{{ secrets.xui_webpath }}/"
+    xui_url_global: "https://{{ ui_hostname }}/{{ secrets.xui_webpath }}/"
+    xui_username: "{{ secrets.xui_username }}"
+    xui_password: "{{ secrets.xui_password }}"
+##########################################################
+- name: 3X-UI Login Task 2 - Cookie
+  block:
+    - name: 3X-UI Login Task 2.1 - Get the login page
+      ansible.builtin.uri:
+        url: "{{ xui_url }}"
+        method: GET
+        return_content: true
+      register: login_page
+
+    - name: 3X-UI Login Task 2.2 - Extract and store the cookie
+      ansible.builtin.set_fact:
+        cookie_header: "3x-ui={{ login_page.cookies['3x-ui'] }}"
+##########################################################
+- name: 3X-UI Login Task 3 - CSRF
+  block:
+    - name: 3X-UI Login Task 3.1 - Mint a CSRF token for current session
+      ansible.builtin.uri:
+        url: "{{ xui_url }}csrf-token"
+        method: GET
+        headers:
+          Cookie: "{{ cookie_header }}"
+          Accept: "application/json"
+          X-Requested-With: "XMLHttpRequest"
+          Referer: "{{ xui_url }}"
+        return_content: true
+      register: csrf_res
+
+    - name: 3X-UI Login Task 3.2 - Store the CSRF token
+      ansible.builtin.set_fact:
+        csrf_token: "{{ csrf_res.json.obj }}"
+##########################################################
+- name: 3X-UI Login Task 4 - Try to login
+  ansible.builtin.uri:
+    url: "{{ xui_url }}login"
+    method: POST
+    body_format: json
+    status_code: [200, 202]
+    return_content: true
+    headers:
+      Content-Type: application/json
+      X-CSRF-Token: "{{ csrf_token }}"
+      Cookie: "{{ cookie_header }}"
+    body:
+      "username": "{{ xui_username }}"
+      "password": "{{ xui_password }}"
+  register: xui_login_res
+  failed_when: xui_login_res.cookies_string == "" or 'Invalid' in xui_login_res.json.msg
+##########################################################
+- name: 3X-UI Login Task 5 - Login succeeded; store the headers for authentication
+  ansible.builtin.set_fact:
+    xui_auth_headers:
+      Content-Type: "application/json"
+      Cookie: "{{ xui_login_res.cookies_string }}"
+      X-CSRF-Token: "{{ csrf_token }}"
+##########################################################

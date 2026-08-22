@@ -1,0 +1,27 @@
+---
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Adds inbound either in a full setup, or a Rebase operation
+##########################################################
+- name: Add Inbound Task 1 - Iterate over the inbounds given
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/xui_add_inbound_subtasks.yaml"
+  loop: "{{ inbound_data if full_setup else rebase_data.added_inbounds }}"
+  loop_control:
+    loop_var: the_inbound
+    label: "Adding inbound {{ the_inbound.name }}"
+##########################################################
+- name: Add Inbound Task 2 - Run the client addition task
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/xui_add_client.yaml"
+##########################################################
+- name: Add Inbound Task 3 - Update nft set for inbound
+  block:
+    - name: Firewall Task 3.1 - Select inbound nft operation
+      ansible.builtin.set_fact:
+        op: inbound
+
+    - name: Firewall Task 3.2 - Apply inbound nft operation
+      ansible.builtin.include_tasks:
+        file: "{{ playbook_dir }}/tasks/nft_op.yaml"
+########################################################

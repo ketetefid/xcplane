@@ -1,0 +1,236 @@
+---
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# It will create the certificate private & fullchain files in:
+# /etc/ssl/private/{{ base_hostname }}.key
+# /etc/ssl/certs/{{ base_hostname }}-fullchain.crt
+########################################################
+- name: ACME Task 1 - Check Cloudflare zone & prepare needed directories and files
+  block:
+    - name: ACME Task 1.1 - Ensure Cloudflare zone is defined
+      ansible.builtin.assert:
+        that:
+          - cloudflare_zone is string
+          - cloudflare_zone is defined
+          - cloudflare_zone | length > 0
+        fail_msg: "Cloudflare zone for {{ base_hostname }} is not defined."
+
+    - name: ACME Task 1.2 - Ensure private key directory exists as /etc/ssl/private
+      ansible.builtin.file:
+        path: /etc/ssl/private
+        state: directory
+        owner: root
+        group: root
+        mode: '0700'
+
+    - name: ACME Task 1.3 - Ensure certificate directory exists as /etc/ssl/certs
+      ansible.builtin.file:
+        path: /etc/ssl/certs
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: ACME Task 1.4 - Ensure ACME account key file exists
+      community.crypto.openssl_privatekey:
+        path: "/etc/ssl/private/acme-account.key"
+        size: 4096
+        mode: '0600'
+        owner: root
+        group: root
+
+    - name: ACME Task 1.5 - Generate certificate private key
+      community.crypto.openssl_privatekey:
+        path: "/etc/ssl/private/{{ base_hostname }}.key"
+        size: 4096
+        mode: '0600'
+        owner: root
+        group: root
+########################################################
+- name: ACME Task 2 - Create CSR for wildcard domain
+  community.crypto.openssl_csr:
+    path: "/etc/ssl/private/{{ base_hostname }}.csr"
+    privatekey_path: "/etc/ssl/private/{{ base_hostname }}.key"
+    common_name: "*.{{ base_hostname }}"
+    subject_alt_name:
+      - "DNS:*.{{ base_hostname }}"
+      - "DNS:{{ base_hostname }}"
+########################################################
+- name: ACME Task 3 - Ensure ACME account exists
+  community.crypto.acme_account:
+    account_key_src: "/etc/ssl/private/acme-account.key"
+    acme_directory: "{{ acme_directory }}"
+    terms_agreed: true
+    acme_version: 2
+    contact:
+      - "mailto:admin@{{ base_hostname }}"
+    state: present
+########################################################
+- name: ACME Task 4 - Start order and get crt files
+  community.crypto.acme_certificate:
+    account_key_src: "/etc/ssl/private/acme-account.key"
+    csr: "/etc/ssl/private/{{ base_hostname }}.csr"
+    dest: "/etc/ssl/certs/{{ base_hostname }}.crt"
+    fullchain_dest: "/etc/ssl/certs/{{ base_hostname }}-fullchain.crt"
+    acme_directory: "{{ acme_directory }}"
+    challenge: dns-01
+    force: false
+    acme_version: 2
+    modify_account: false
+  register: acme_challenge
+########################################################
+# It's a little overengineered because deleting multiple records in one task
+# might not be feasible. Also CNAME records can interfere with the process.
+- name: ACME Task 5 - Cleaning up old DNS records in Cloudflare
+  delegate_to: localhost
+  block:
+    - name: ACME Task 5.1 - Solo-create TXT to wipe prior ACME tokens
+      community.general.cloudflare_dns:
+        api_token: "{{ cloudflare_token }}"
+        zone: "{{ cloudflare_zone }}"
+        record: "_acme-challenge"
+        type: TXT
+        value: "acme-cleanup"
+        ttl: 120
+        state: present
+        solo: true
+
+    - name: ACME Task 5.2 - Cleanup ACME TXT records
+      community.general.cloudflare_dns:
+        api_token: "{{ cloudflare_token }}"
+        zone: "{{ cloudflare_zone }}"
+        record: "_acme-challenge"
+        type: TXT
+        state: absent
+
+    - name: ACME Task 5.3 - Cleanup ACME CNAME records
+      community.general.cloudflare_dns:
+        api_token: "{{ cloudflare_token }}"
+        zone: "{{ cloudflare_zone }}"
+        type: CNAME
+        record: "_acme-challenge"
+        state: absent
+########################################################
+- name: ACME Task 6 - Compute ACME challenge names
+  ansible.builtin.set_fact:
+    acme_challenge_fqdn: "_acme-challenge.{{ base_hostname }}"
+    acme_challenge_record: >-
+      {{
+        '_acme-challenge'
+        if base_hostname == cloudflare_zone
+        else
+        '_acme-challenge.' ~
+        (
+          base_hostname
+          | regex_replace('\\.' ~ (cloudflare_zone | regex_escape) ~ '$', '')
+        )
+      }}
+########################################################
+- name: ACME Task 7 - Create all required DNS-01 TXT records and wait for their propagation
+  block:
+    - name: ACME Task 7.1 - Create all required DNS-01 TXT records first
+      delegate_to: localhost
+      community.general.cloudflare_dns:
+        api_token: "{{ cloudflare_token }}"
+        zone: "{{ cloudflare_zone }}"
+        type: TXT
+        record: "{{ acme_challenge_record }}"
+        value: "{{ item }}"
+        ttl: 120
+        state: present
+      loop: "{{ acme_challenge.challenge_data_dns[acme_challenge_fqdn] }}"
+      when:
+        - acme_challenge.challenge_data_dns is defined
+        - acme_challenge.challenge_data_dns[acme_challenge_fqdn] is defined
+        - acme_challenge.challenge_data_dns[acme_challenge_fqdn] | length > 0
+      register: dns_txt
+
+    - name: ACME Task 7.2 - Wait for each ACME TXT record via Cloudflare resolver
+      ansible.builtin.command:
+        cmd: "dig TXT {{ acme_challenge_fqdn }} @1.1.1.1 +short"
+      register: acme_dns_check_cf
+      retries: 30
+      delay: 5
+      until: item in acme_dns_check_cf.stdout
+      changed_when: false
+      loop: "{{ acme_challenge.challenge_data_dns[acme_challenge_fqdn] }}"
+      when:
+        - acme_challenge.challenge_data_dns is defined
+        - acme_challenge.challenge_data_dns[acme_challenge_fqdn] is defined
+        - acme_challenge.challenge_data_dns[acme_challenge_fqdn] | length > 0
+
+    - name: ACME Task 7.3 - Wait for each ACME TXT record via Google resolver
+      ansible.builtin.command:
+        cmd: "dig TXT {{ acme_challenge_fqdn }} @8.8.8.8 +short"
+      register: acme_dns_check_google
+      retries: 30
+      delay: 5
+      until: item in acme_dns_check_google.stdout
+      changed_when: false
+      loop: "{{ acme_challenge.challenge_data_dns[acme_challenge_fqdn] }}"
+      when:
+        - acme_challenge.challenge_data_dns is defined
+        - acme_challenge.challenge_data_dns[acme_challenge_fqdn] is defined
+        - acme_challenge.challenge_data_dns[acme_challenge_fqdn] | length > 0
+########################################################
+- name: ACME Task 8 - Validate challenge and obtain certificate
+  community.crypto.acme_certificate:
+    account_key_src: "/etc/ssl/private/acme-account.key"
+    csr: "/etc/ssl/private/{{ base_hostname }}.csr"
+    dest: "/etc/ssl/certs/{{ base_hostname }}.crt"
+    fullchain_dest: "/etc/ssl/certs/{{ base_hostname }}-fullchain.crt"
+    acme_directory: "{{ acme_directory }}"
+    challenge: dns-01
+    data: "{{ acme_challenge }}"
+    force: false
+    acme_version: 2
+    modify_account: false
+  register: acme_result
+  when:
+    - acme_challenge.challenge_data is defined
+    - acme_challenge.challenge_data | length > 0
+########################################################
+- name: ACME Task 9 - Cleaning up possibly created DNS records in Cloudflare
+  delegate_to: localhost
+  block:
+    - name: ACME Task 9.1 - Solo-create TXT to wipe any created ACME tokens
+      community.general.cloudflare_dns:
+        api_token: "{{ cloudflare_token }}"
+        zone: "{{ cloudflare_zone }}"
+        record: "_acme-challenge"
+        type: TXT
+        value: "temporary-acme-cleanup-placeholder"
+        ttl: 120
+        state: present
+        solo: true
+
+    - name: ACME Task 9.2 - Cleanup ACME TXT records totally
+      community.general.cloudflare_dns:
+        api_token: "{{ cloudflare_token }}"
+        zone: "{{ cloudflare_zone }}"
+        record: "_acme-challenge"
+        type: TXT
+        state: absent
+########################################################
+- name: ACME Task 10 - Fetch the private key and fullchain crt
+  ansible.posix.synchronize:
+    src: "{{ item }}"
+    dest: "{{ local_path }}/"
+    mode: pull
+    checksum: true
+  loop:
+    - '/etc/ssl/private/{{ base_hostname }}.key'
+    - '/etc/ssl/certs/{{ base_hostname }}-fullchain.crt'
+########################################################
+# The ACME task might be invoked for a renewal
+- name: ACME Task 11 - Check if Nginx is running
+  ansible.builtin.systemd_service:
+    name: nginx
+  register: nginx_status
+########################################################
+- name: ACME Task 12 - Reload Nginx if it is running
+  ansible.builtin.systemd_service:
+    name: nginx
+    state: reloaded
+  when: nginx_status.status.ActiveState | default('') == 'active'
+########################################################

@@ -1,0 +1,7 @@
+#!/usr/sbin/nft -f
+
+add chain inet xcplane input { policy accept; }
+
+flush chain inet xcplane input
+flush chain inet xcplane output
+flush chain inet xcplane forward

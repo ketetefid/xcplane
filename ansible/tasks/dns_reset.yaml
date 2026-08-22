@@ -1,0 +1,16 @@
+---
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Resets the system's DNS to Google & Cloudflare
+########################################################
+- name: Reset DNS Task - Hard-set resolv.conf to Google & Cloudflare to ensure idempotency in DNS
+  ansible.builtin.copy:
+    dest: '/etc/resolv.conf'
+    content: |
+      # Managed by Ansible
+      nameserver 8.8.8.8
+      nameserver 1.1.1.1
+    owner: root
+    group: root
+    mode: '0644'
+########################################################

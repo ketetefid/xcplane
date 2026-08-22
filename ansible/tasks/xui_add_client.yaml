@@ -1,0 +1,46 @@
+---
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# This task adds one or more clients according to inbound_data provided by the
+# Rust program
+##########################################################
+- name: Add Client Task 1 - Get all of the inbound(s)
+  ansible.builtin.uri:
+    url: "{{ xui_url }}panel/api/inbounds/list"
+    method: GET
+    body_format: json
+    status_code: [200, 202]
+    return_content: true
+    headers: "{{ xui_auth_headers }}"
+  register: xui_get_inbounds
+##########################################################
+- name: Add Client Task 2 - Get the inbound IDs and remarks
+  ansible.builtin.set_fact:
+    inbound_id_{{ item.remark }}: "{{ item.id }}"
+    inbound_names: "{{ inbound_names | default([]) + [item.remark] }}"
+  loop: "{{ xui_get_inbounds.json.obj }}"
+  loop_control:
+    label: "getting the db ID for {{ item.remark }}"
+##########################################################
+- name: Add Client Task 3 - Ensure the client's inbound is already present
+  ansible.builtin.assert:
+    that:
+      - item.name in inbound_names # we must have the same names
+  loop: "{{ inbound_data if full_setup else rebase_data.added_inbounds }}"
+  loop_control:
+    label: "Ensuring inbound {{ item.name }} is already present"
+##########################################################
+- name: Add Client Task 4 - Copy the generator python script to /tmp
+  ansible.builtin.copy:
+    src: "{{ configs_path }}/x-ui/client_generator.py"
+    dest: '/tmp/client_generator.py'
+    mode: '0644'
+##########################################################
+- name: Add Client Task 5 - Generate the clients and add them
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/xui_add_client_subtasks.yaml"
+  loop: "{{ inbound_data if full_setup else rebase_data.added_inbounds }}"
+  loop_control:
+    loop_var: the_inbound
+    label: "Adding clients for inbound {{ the_inbound.name }}"
+##########################################################

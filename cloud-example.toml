@@ -1,0 +1,219 @@
+# ===========================================================================
+# xcplane Cloud Configuration Example
+#
+# File: ~/.config/xcplane/cloud.toml (for a user)
+# File: /etc/xcplane/cloud.toml      (for root)
+#
+# Fields that have a default can be skipped and their default values will be
+# taken.
+# ===========================================================================
+
+#############################################################################
+############################ Global Cloud Setting ###########################
+#############################################################################
+[settings]
+
+# Enable automated corrective actions when a service fails repeatedly (default: true)
+auto-fix = true
+
+# Number of consecutive failures before triggering automatic fixes (default: 10)
+fix-threshold = 20
+
+# Monitoring interval between health checks in seconds (default: 60)
+monitor-interval = 120
+
+
+# Cloud Inbounds Configuration - the pool of Xray inbounds 
+#
+# 'inbound-set' is a list of Xray inbounds from which the servers will choose
+# their own ones. The servers' inbound names and ports must match, but the
+# other parameters can be different. Note that an inbound is immutable once
+# created.
+# If a server is defined with no inbounds, this pool will be applied to that
+# sever.
+[[settings.inbound-set]]
+name = "3day"            # Unique name among inbounds
+port = 2083              # The connection port
+total = 10               # Total number of clients for this inbound
+
+kind = "VlessTcpReality" # The kind of inbound. Five are available:
+                         # VlessXhttpReality (default), VlessTcpReality,
+                         # VlessXhttpTls VlessWsTls, VlessGrpcTls
+
+traffic = 20             # Total traffic allowance for each client in GB. 0
+			 # means unlimited (default: 0)
+
+expiry = 3               # Client account duration in days after first use. 0
+			 # means it never expires (default: 0)
+
+comment = "3day-20GB"    # Comment about the inbound (default: "")
+
+
+[[settings.inbound-set]]
+name = "main"
+kind = "VlessXhttpTls"
+total = 10
+port = 2053
+traffic = 5
+expiry = 60
+comment = "Primary clients"
+
+[[settings.inbound-set]]
+name = "6month"
+total = 300
+port = 2096
+traffic = 1200
+expiry = 180
+comment = "6-month account"
+
+[[settings.inbound-set]]
+name = "dev_inbound"
+total = 7
+port = 343
+kind = "VlessTcpReality"
+traffic = 0
+expiry = 0
+comment = "the dev inbound with unlimited bandwidth"
+
+[[settings.inbound-set]]
+name = "1month"
+total = 200
+port = 2087
+traffic = 200
+expiry = 31
+comment = "base account"
+
+
+# -----------------------------------------------------------------------------
+# Server Definitions
+#
+# Each server entry represents a distinct node managed and monitored by
+# xcplane.
+# -----------------------------------------------------------------------------
+
+# --------------------------------------------------------------------------
+# -----------------------------Server number 1------------------------------
+# --------------------------------------------------------------------------
+[[servers]]
+# A unique name for the server
+name = "xray_node_us_east_1"
+
+# The server's public IPv4 or IPv6 address
+ip = "203.0.113.10"          
+
+# Base domain for services which must be managed by Cloudflare. It can be
+# a subdomain of the TLD
+domain = "example.com"
+
+# ISO country code (default: USA)
+region = "US"
+
+# State: 'Offgrid' (not provisioned/managed yet) or 'Production' (being
+# monitored and ready to serve traffic) (default: Offgrid)
+state = "Offgrid"
+
+# Traffic quota in Terabytes per month. A value of 0 indicates infinite
+# traffic allowance (default: 0)
+quota = 10
+
+# Whether this server is active for management and monitoring (default:
+# true)
+enabled = true
+
+# The 'intended' SSH port configuration (default: 79)
+ssh-port = 91
+
+# Subdomain specific to DNS over HTTPS a.k.a DoH (default: dns)
+dns-subdomain = "doh"
+
+# UI Panel subdomain for XUI web access (default: ui)
+ui-subdomain = "x-ui"
+
+# Subscription service subdomain (default: sub)
+sub-subdomain = "xsub"
+
+# Cloudflare proxy setting for DNS (oranged proxy) and network traffic
+# (enforced by firewall) (default: false)
+cloudflare-proxied = true
+
+# The list of countries to which new outbound connections will be blocked.
+# Users from these countries can freely connect, but the server will not load
+# any external service hosted in these countries (default: CN, RU, IR)
+outbound-block = [ "CN", "IR", "RU" ]
+
+# 'inbounds' are a list of Xray inbounds that will be set up on the server with
+# the specified clients. The name and port of each inbound must match one from
+# the cloud inbound-set. Note that an inbound is immutable once created.
+#
+# We have defined two inbounds explicitly, and only these two will be set up.
+[[servers.inbounds]]
+name = "3day"
+port = 2083
+total = 1000
+kind = "VlessTcpReality"
+traffic = 200
+expiry = 30
+comment = "trial"
+
+# Another inbound for this server
+[[servers.inbounds]]
+name = "1month"
+total = 100
+port = 2087
+kind = "VlessXhttpTls"
+traffic = 200
+expiry = 31
+comment = "base account"
+
+# --------------------------------------------------------------------------
+# -----------------------------Server number 2------------------------------
+# --------------------------------------------------------------------------
+[[servers]]
+name = "xray_node_eu1"
+ip = "185.199.108.4"
+domain = "node.eu.example.com"
+region = "ro"
+state = "offgrid"
+quota = 20
+enabled = false
+ssh-port = 77
+dns-subdomain = "dohhidden"
+ui-subdomain = "xui"
+sub-subdomain = "jsubserver"
+cloudflare-proxied = false
+
+[[servers.inbounds]]
+name = "6month"
+total = 30
+port = 2096
+traffic = 1200
+expiry = 180
+comment = "6-month account"
+
+# --------------------------------------------------------------------------
+# ----------------------------Server number 3-------------------------------
+# --------------------------------------------------------------------------
+# This is an example server with one explicit inbound. The specs and the inbound
+# use default values.
+[[servers]]
+name = "node_3"
+ip = "199.150.108.4"
+domain = "this-deep.level.mydomain.com"
+
+[[servers.inbounds]]
+name = "dev_inbound"
+total = 3
+port = 343
+
+# --------------------------------------------------------------------------
+# -----------------------------Server number 4------------------------------
+# --------------------------------------------------------------------------
+
+# A valid, minimal server which will take its inbound from the cloud
+# inbound-set.
+[[servers]]
+name = "friends_node"
+ip = "193.152.128.40"
+domain = "mysite.xyz"
+
+

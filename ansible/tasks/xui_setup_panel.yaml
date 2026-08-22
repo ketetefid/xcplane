@@ -1,0 +1,55 @@
+---
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+##########################################################
+- name: 3X-UI Panel Task 1 - Get the panel settings first
+  ansible.builtin.uri:
+    url: "{{ xui_url }}panel/api/setting/all"
+    method: POST
+    body_format: json
+    status_code: [200, 202]
+    return_content: true
+    headers: "{{ xui_auth_headers }}"
+  register: xui_get_panel_setting
+##########################################################
+- name: 3X-UI Panel Task 2 - Store all of the panel settings in a var
+  ansible.builtin.set_fact:
+    panel_settings: "{{ xui_get_panel_setting.json.obj }}"
+##########################################################
+- name: 3X-UI Panel Task 3 - Modify the panel_settings var
+  # Our default settings are applied here.
+  ansible.builtin.set_fact:
+    panel_settings: >
+      {{ panel_settings | ansible.builtin.combine({
+      'subPort': sub_port,
+      'subPath': '/' ~ secrets.xui_subpath ~ '/',
+      'subJsonPath': '/' ~ secrets.xui_jsubpath ~ '/',
+      'subJsonEnable': true,
+      'subURI': 'https://' ~ sub_hostname ~ '/' ~ secrets.xui_subpath ~ '/',
+      'subJsonURI': 'https://' ~ sub_hostname ~ '/' ~ secrets.xui_jsubpath ~ '/'
+      }) }}
+##########################################################
+- name: 3X-UI Panel Task 4 - Apply the new panel settings
+  ansible.builtin.uri:
+    url: "{{ xui_url }}panel/api/setting/update"
+    method: POST
+    body_format: json
+    status_code: [200, 202]
+    return_content: true
+    body:
+      "{{ panel_settings }}"
+    headers: "{{ xui_auth_headers }}"
+  register: xui_set_setting
+##########################################################
+- name: 3X-UI Panel Task 5 - Restart the panel
+  ansible.builtin.uri:
+    url: "{{ xui_url }}panel/api/setting/restartPanel"
+    method: POST
+    status_code: [200, 202]
+    return_content: true
+    headers: "{{ xui_auth_headers }}"
+  register: xui_restart_panel
+  failed_when: >
+    not ( xui_set_setting.json.success
+    and xui_restart_panel.json.success )
+##########################################################

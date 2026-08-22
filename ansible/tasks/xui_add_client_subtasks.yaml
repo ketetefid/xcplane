@@ -1,0 +1,79 @@
+---
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+##########################################################
+- name: Add Client Subtask 1 - Run the python client generator for inbound {{ the_inbound.name }}
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - /tmp/client_generator.py
+      - "{{ the_inbound.total }}"
+      - "{{ the_inbound.traffic }}"
+      - "{{ the_inbound.expiry }}"
+      - "{{ the_inbound.comment }}"
+      - "{{ lookup('ansible.builtin.vars', 'inbound_id_' ~ the_inbound.name) }}"
+  register: client_gen_output
+  changed_when: false
+##########################################################
+- name: Add Client Subtask 2 - Call the API with the generated clients
+  ansible.builtin.uri:
+    url: "{{ xui_url }}panel/api/clients/bulkCreate"
+    method: POST
+    status_code: [200, 202]
+    return_content: true
+    headers: "{{ xui_auth_headers }}"
+    body_format: json
+    body: "{{ client_gen_output.stdout }}"
+  register: xui_add_client
+  failed_when: not xui_add_client.json.success
+##########################################################
+- name: Add Client Subtask 3 - Pause for a few seconds
+  ansible.builtin.command: sleep 3
+  changed_when: false
+##########################################################
+- name: Add Client Subtask 4 - Restart x-ui system service
+  # A faulty client might be added successfully so we make sure xray can restart
+  # after a few seconds of pause
+  ansible.builtin.systemd_service:
+    state: restarted
+    name: x-ui
+##########################################################
+- name: Add Client Subtask 5 - Store all the generated clients in a separate var and extract the IDs
+  block:
+    - name: Add Client Subtask 5.1 - Store all the generated clients in separate vars
+      ansible.builtin.set_fact:
+        generated_clients: "{{ client_gen_output.stdout | from_json }}"
+        clients_sublinks: []
+        clients_json_sublinks: []
+
+    - name: Add Client Subtask 5.2 - Extract the sub and subjson IDs
+      ansible.builtin.set_fact:
+        clients_sublinks: "{{ clients_sublinks + [ the_inbound.name ~ '  ' ~ \
+        ( url_proxy | default('')) ~ 'https://' ~ sub_hostname ~ '/' ~ \
+        secrets.xui_subpath ~ '/' ~ the_client.client.subId ~ '  ' ~ node_region ~ '  ' ~ node_name ] }}"
+        clients_json_sublinks: "{{ clients_json_sublinks + [ the_inbound.name \
+        ~ '  ' ~ ( url_proxy | default('')) ~ 'https://' ~ sub_hostname ~ '/' ~ \
+        secrets.xui_jsubpath ~ '/' ~ the_client.client.subId ~ '  ' ~ node_region ~ '  ' ~ node_name ] }}"
+      loop: "{{ generated_clients }}"
+      loop_control:
+        loop_var: the_client
+        label: "Storing client {{ the_client.client.subId }}"
+##########################################################
+- name: Add Client Subtask 6 - Store the generated clients' json/sublinks
+  block:
+    - name: Add Client Subtask 6.1 - Write the generated clients' sublinks to files and fetch them
+      # We write in a descriptive format
+      # "inbound_name   sublink   node_region   node_name"
+      ansible.builtin.include_role:
+        name: capture_output
+      vars:
+        capture_output_var: "{{ clients_sublinks | join('\n') }}\n"
+        capture_output_filename: "{{ the_inbound.name ~ '_' ~ the_inbound.kind ~ sublinks_suffix }}"
+
+    - name: Add Client Subtask 6.2 - Write the generated clients' json sublinks to files and fetch them
+      ansible.builtin.include_role:
+        name: capture_output
+      vars:
+        capture_output_var: "{{ clients_json_sublinks | join('\n') }}\n"
+        capture_output_filename: "{{ the_inbound.name ~ '_' ~ the_inbound.kind ~ jsublinks_suffix }}"
+##########################################################

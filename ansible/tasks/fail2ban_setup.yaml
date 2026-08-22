@@ -1,0 +1,131 @@
+---
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Installs and configures fail2ban
+########################################################
+- name: Fail2ban Task 1 - Install fail2ban
+  ansible.builtin.apt:
+    pkg:
+      - fail2ban
+      - curl
+      - jq
+    state: present
+    update_cache: true
+  environment:
+    DEBIAN_FRONTEND: "noninteractive"
+########################################################
+- name: Fail2ban Task 2 - Get currently running fail2ban jails
+  ansible.builtin.command: fail2ban-client status
+  register: fail2ban_status
+  changed_when: false
+  failed_when: false
+########################################################
+- name: Fail2ban Task 3 - Ensure fail2ban directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - /etc/fail2ban/jail.d
+    - /etc/fail2ban/filter.d
+    - /etc/fail2ban/action.d
+########################################################
+- name: Fail2ban Task 4 - Set allowed paths from secrets
+  ansible.builtin.set_fact:
+    allowed_paths:
+      - "{{ secrets.health_path }}"
+      - "{{ secrets.doh_endpoint }}"
+      - "{{ secrets.xui_webpath }}"
+      - "{{ secrets.xui_subpath }}"
+      - "{{ secrets.xui_jsubpath }}"
+########################################################
+- name: Fail2ban Task 5 - Deploy global defaults
+  ansible.builtin.copy:
+    src: "{{ configs_path }}/fail2ban/00-defaults-jail.conf"
+    dest: /etc/fail2ban/jail.d/00-jail-defaults.conf
+    mode: "0644"
+########################################################
+- name: Fail2ban Task 6 - Deploy SSH jail
+  ansible.builtin.template:
+    src: "{{ configs_path }}/fail2ban/sshd-jail.conf"
+    dest: /etc/fail2ban/jail.d/sshd.conf
+    mode: "0644"
+########################################################
+- name: Fail2ban Task 7 - Deploy Nginx jails
+  ansible.builtin.template:
+    src: "{{ configs_path }}/fail2ban/nginx-jail.conf"
+    dest: /etc/fail2ban/jail.d/nginx.conf
+    mode: "0644"
+########################################################
+- name: Fail2ban Task block 8
+  block:
+    - name: Fail2ban Task 8.1 - Deploy exploit & badmethod Nginx filters
+      ansible.builtin.copy:
+        src: "{{ configs_path }}/fail2ban/{{ item }}"
+        dest: /etc/fail2ban/filter.d/
+        owner: root
+        group: root
+        mode: "0640"
+      loop:
+        - nginx-exploit.conf
+        - nginx-badmethod.conf
+
+    - name: Fail2ban Task 8.2 - Deploy unknownpath Nginx filter
+      ansible.builtin.template:
+        src: "{{ configs_path }}/fail2ban/nginx-unknownpath.conf"
+        dest: /etc/fail2ban/filter.d/nginx-unknownpath.conf
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Fail2ban Task 8.3 - Deploy cloudflare banaction
+      ansible.builtin.template:
+        src: "{{ configs_path }}/fail2ban/cloudflare-ban.conf"
+        dest: /etc/fail2ban/action.d/cloudflare-ban.conf
+        owner: root
+        group: root
+        mode: "0600"
+      when: cloudflare_proxied
+
+    - name: Fail2ban Task 8.4 - Remove redundant cloudflare banaction
+      ansible.builtin.file:
+        path: /etc/fail2ban/action.d/cloudflare-ban.conf
+        state: absent
+      when: not cloudflare_proxied
+########################################################
+- name: Fail2ban Task 9 - Validate the configs
+  ansible.builtin.command: fail2ban-client -t
+  changed_when: false
+########################################################
+- name: Fail2ban Task 10 - Restart or Reload fail2ban
+  vars:
+    fail2ban_jails:
+      - sshd
+      - nginx-badmethod
+      - nginx-exploit
+      - nginx-limit-req
+      - nginx-unknownpath
+  block:
+    - name: Fail2ban Task 10.1 - Restart if any managed jail is missing
+      ansible.builtin.systemd_service:
+        name: fail2ban
+        state: restarted
+        enabled: true
+      when: >
+        fail2ban_status.rc != 0 or
+        (
+          fail2ban_jails
+          | reject('in', fail2ban_status.stdout | default(''))
+          | list
+          | length > 0
+        )
+
+    - name: Fail2ban Task 10.2 - Reload if all managed jails already exist
+      ansible.builtin.command: fail2ban-client reload
+      changed_when: true
+      when: >
+        fail2ban_jails
+        | reject('in', fail2ban_status.stdout)
+        | list
+        | length == 0
+########################################################

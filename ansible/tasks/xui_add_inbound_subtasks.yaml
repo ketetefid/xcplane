@@ -1,0 +1,99 @@
+---
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+##########################################################
+- name: Add Inbound Subtask 1.1 - Set derived values for the mother client
+  # Dynamically loading from a var file will cause it to produce another random
+  # string whenever the var name is accessed.
+  # Use "0" and not 0 for totalGB or expiry to indicate infinity
+  ansible.builtin.set_fact:
+    mother_client_subid: "{{ secrets.mother_subids[the_inbound.name] }}"
+    mother_client_uuid: "{{ lookup('ansible.builtin.pipe', 'uuidgen') }}"
+    mother_client_email: "mother_inbound_{{ the_inbound.name }}@xcplane"
+    mother_client_totalGB: "0" # noqa var-naming
+    mother_client_expiry: "0"
+    inbound_server_name: "{{ sub_hostname }}"
+    mother_client_comment: "Mother client of {{ the_inbound.name }} inbound"
+    # Newer fields in 3x-ui
+    mother_client_password: "{{ lookup('community.general.random_string', special=false, upper=false, length=16) }}"
+    mother_client_auth: "{{ lookup('community.general.random_string', special=false, upper=false, length=16) }}"
+##########################################################
+- name: Generate needed data if the inbound is of Reality security type
+  when: "'Reality' in the_inbound.kind"
+  block:
+    - name: Add Inbound Subtask 1.2 - Generate X25519 key pair for Reality
+      ansible.builtin.command: /usr/local/x-ui/bin/xray-linux-amd64 x25519
+      register: x25519_output
+      changed_when: true
+
+    - name: Add Inbound Subtask 1.3 - Extract X25519 keys
+      ansible.builtin.set_fact:
+        inbound_private_key: "{{ x25519_output.stdout | regex_search('PrivateKey:\\s*(\\S+)', '\\1') | first }}"
+        inbound_public_key: "{{ x25519_output.stdout | regex_search('PublicKey|Password \\(PublicKey\\):\\s*(\\S+)', '\\1') | first }}"
+
+    - name: Add Inbound Subtask 1.4 - Initialize a shortIds list
+      ansible.builtin.set_fact:
+        reality_short_ids: []
+
+    - name: Add Inbound Subtask 1.5 - Generate 8 shortIds of 16 length
+      # Easier character selection in password module for hex string generation
+      ansible.builtin.set_fact:
+        reality_short_ids: "{{ reality_short_ids + [lookup('ansible.builtin.password', \
+        '/dev/null', chars='0123456789abcdef', length=16)] }}"
+      loop: "{{ range(0, 8) | list }}"
+      loop_control:
+        loop_var: short_id
+##########################################################
+- name: Add Inbound Subtask 2 - Populate the inbound template and store it in a var
+  ansible.builtin.set_fact:
+    inbound_config: "{{ lookup('template', configs_path ~ '/x-ui/inbound_template.json' ) }}"
+    mother_inbound_sublink: "https://{{ sub_hostname }}/{{ secrets.xui_subpath }}/{{ mother_client_subid }}\
+    \nhttps://{{ sub_hostname }}/{{ secrets.xui_jsubpath }}/{{ mother_client_subid }}"
+##########################################################
+- name: Add Inbound Subtask 3 - Call the API and add the inbound
+  ansible.builtin.uri:
+    url: "{{ xui_url }}panel/api/inbounds/add"
+    method: POST
+    status_code: [200, 202]
+    return_content: true
+    headers: "{{ xui_auth_headers }}"
+    body_format: json
+    body: "{{ inbound_config }}"
+  register: xui_add_inbound
+  failed_when: not xui_add_inbound.json.success
+##########################################################
+- name: Add Inbound Subtask 4 - Pause for a few seconds
+  # Sometimes a faulty inbound can be added while the code returns success. We
+  # need to wait a few seconds and then restart x-ui to ensure everything is OK.
+  ansible.builtin.command: sleep 3
+  changed_when: false
+##########################################################
+- name: Add Inbound Subtask 5 - Restart x-ui system service
+  ansible.builtin.systemd_service:
+    state: restarted
+    name: x-ui
+##########################################################
+- name: Add Inbound Subtask 6 - Get the inbound created
+  ansible.builtin.uri:
+    url: "{{ xui_url }}panel/api/\
+    inbounds/get/{{ xui_add_inbound.json.obj.id }}"
+    method: GET
+    status_code: [200, 202]
+    return_content: true
+    headers: "{{ xui_auth_headers }}"
+  register: xui_get_inbounds
+##########################################################
+- name: Add Inbound Subask 7 - Save the inbound to a file
+  ansible.builtin.include_role:
+    name: capture_output
+  vars:
+    capture_output_var: "{{ xui_get_inbounds.json.obj | ansible.builtin.to_nice_json }}"
+    capture_output_filename: "xui_mother_inbound_{{ the_inbound.name }}.json"
+##########################################################
+- name: Add Inbound Subask 8 - Save the json sublink to a file
+  ansible.builtin.include_role:
+    name: capture_output
+  vars:
+    capture_output_var: "{{ mother_inbound_sublink }}"
+    capture_output_filename: "xui_mother_inbound_sublink_{{ the_inbound.name }}.txt"
+##########################################################

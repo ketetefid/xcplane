@@ -1,0 +1,33 @@
+---
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Installs necessary packages
+########################################################
+- name: Wait for possible apt lock
+  ansible.builtin.shell: |
+    while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do
+      sleep 5
+    done
+  changed_when: false
+########################################################
+- name: Basics Install Task 1 - Bootstrap python apt bindings
+  ansible.builtin.raw: |
+    apt-get update
+    apt-get install -y python3-apt
+  changed_when: false
+########################################################
+- name: Basics Install Task 2 - Install some basic prerequisites on the server
+  ansible.builtin.apt:
+    pkg:
+      - rsync
+      - nano
+      - tmux
+      - curl
+      - software-properties-common
+      - ca-certificates
+      - htop
+      - dnsutils
+      - nnn
+    state: present
+    update_cache: false
+########################################################

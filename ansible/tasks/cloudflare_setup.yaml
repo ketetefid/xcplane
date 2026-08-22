@@ -1,0 +1,204 @@
+---
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Sets records in Cloudflare to point to the server
+########################################################
+- name: Cloudflare Task 1 - Ensure Cloudflare zone is defined
+  ansible.builtin.assert:
+    that:
+      - cloudflare_zone is defined
+      - cloudflare_zone is string
+      - cloudflare_zone | length > 0
+    fail_msg: "Cloudflare zone for {{ base_hostname }} is not defined."
+########################################################
+- name: Cloudflare Task 2.1 - Initialize IP address capabilities
+  ansible.builtin.set_fact:
+    ipv4_ready: "{{ ansible_host is ansible.utils.ipv4_address }}"
+    ipv6_ready: "{{ ansible_host is ansible.utils.ipv6_address }}"
+########################################################
+- name: Cloudflare Task 2.2 - Accept the defined server IPv4 as verified
+  ansible.builtin.set_fact:
+    cloudflare_ipv4_address: "{{ ansible_host }}"
+  when: ipv4_ready
+########################################################
+- name: Cloudflare Task 2.2 - Accept the defined server IPv6 as verified
+  ansible.builtin.set_fact:
+    cloudflare_ipv6_address: "{{ ansible_host }}"
+  when: ipv6_ready
+########################################################
+- name: Check the server's IPv6 address
+  # Including both vars in testing, so ordering doesn't accidentally matter
+  # later
+  when: ipv4_ready and not ipv6_ready
+  block:
+    - name: Cloudflare Task 2.3 - Discover public IPv6 address
+      ansible.builtin.command:
+        argv:
+          - curl
+          - -6
+          - --fail
+          - --silent
+          - --show-error
+          - --max-time
+          - "10"
+          - https://api6.ipify.org
+      register: discovered_ipv6
+      changed_when: false
+      failed_when: false
+
+    - name: Cloudflare Task 2.4 - Test discovered IPv6 SSH connectivity
+      ansible.builtin.wait_for:
+        host: "{{ discovered_ipv6.stdout | trim }}"
+        port: "{{ ansible_port }}"
+        timeout: 5
+        connect_timeout: 3
+        state: started
+      delegate_to: localhost
+      register: ipv6_connectivity
+      changed_when: false
+      failed_when: false
+      when:
+        - discovered_ipv6.rc == 0
+        - discovered_ipv6.stdout | trim is ansible.utils.ipv6_address
+
+    - name: Cloudflare Task 2.5 - Set verified IPv6 address
+      ansible.builtin.set_fact:
+        cloudflare_ipv6_address: "{{ discovered_ipv6.stdout | trim }}"
+        ipv6_ready: true
+      when:
+        - discovered_ipv6.rc == 0
+        - discovered_ipv6.stdout | trim is ansible.utils.ipv6_address
+        - ipv6_connectivity is defined
+        - not ipv6_connectivity.failed
+########################################################
+- name: Check the server's IPv4 address
+  when: ipv6_ready and not ipv4_ready
+  block:
+    - name: Cloudflare Task 2.3 - Discover public IPv4 address
+      ansible.builtin.command:
+        argv:
+          - curl
+          - -4
+          - --fail
+          - --silent
+          - --show-error
+          - --max-time
+          - "10"
+          - https://api.ipify.org
+      register: discovered_ipv4
+      changed_when: false
+      failed_when: false
+
+    - name: Cloudflare Task 2.4 - Test discovered IPv4 SSH connectivity
+      ansible.builtin.wait_for:
+        host: "{{ discovered_ipv4.stdout | trim }}"
+        port: "{{ ansible_port }}"
+        timeout: 5
+        connect_timeout: 3
+        state: started
+      delegate_to: localhost
+      register: ipv4_connectivity
+      changed_when: false
+      failed_when: false
+      when:
+        - discovered_ipv4.rc == 0
+        - discovered_ipv4.stdout | trim is ansible.utils.ipv4_address
+
+    - name: Cloudflare Task 2.5 - Set verified IPv4 address
+      ansible.builtin.set_fact:
+        cloudflare_ipv4_address: "{{ discovered_ipv4.stdout | trim }}"
+        ipv4_ready: true
+      when:
+        - discovered_ipv4.rc == 0
+        - discovered_ipv4.stdout | trim is ansible.utils.ipv4_address
+        - ipv4_connectivity is defined
+        - not ipv4_connectivity.failed
+########################################################
+- name: Cloudflare Task 3.1 - Create A records for DNS & UI servers
+  community.general.cloudflare_dns:
+    api_token: "{{ cloudflare_token }}"
+    zone: "{{ cloudflare_zone }}"
+    record: "{{ item }}"
+    type: A
+    value: "{{ cloudflare_ipv4_address }}"
+    ttl: 1
+    proxied: "{{ cloudflare_proxied }}"
+    state: present
+    solo: true
+    comment: "xcplane-ansible-managed"
+  loop:
+    - "{{ dns_hostname }}"
+    - "{{ ui_hostname }}"
+  when: ipv4_ready
+########################################################
+- name: Cloudflare Task 3.2 - Create A record for subscription server
+  community.general.cloudflare_dns:
+    api_token: "{{ cloudflare_token }}"
+    zone: "{{ cloudflare_zone }}"
+    record: "{{ sub_hostname }}"
+    type: A
+    value: "{{ cloudflare_ipv4_address }}"
+    ttl: 1
+    proxied: "{{ cloudflare_proxied and cloudflare_only }}"
+    state: present
+    solo: true
+    comment: "xcplane-ansible-managed"
+  when: ipv4_ready
+########################################################
+- name: Cloudflare Task 4.1 - Create AAAA records for DNS & UI when IPv6 is available
+  community.general.cloudflare_dns:
+    api_token: "{{ cloudflare_token }}"
+    zone: "{{ cloudflare_zone }}"
+    record: "{{ item }}"
+    type: AAAA
+    value: "{{ cloudflare_ipv6_address }}"
+    ttl: 1
+    proxied: "{{ cloudflare_proxied }}"
+    state: present
+    solo: true
+    comment: "xcplane-ansible-managed"
+  loop:
+    - "{{ dns_hostname }}"
+    - "{{ ui_hostname }}"
+  when: ipv6_ready
+########################################################
+- name: Cloudflare Task 4.2 - Create AAAA records for sub server when IPv6 is available
+  community.general.cloudflare_dns:
+    api_token: "{{ cloudflare_token }}"
+    zone: "{{ cloudflare_zone }}"
+    record: "{{ sub_hostname }}"
+    type: AAAA
+    value: "{{ cloudflare_ipv6_address }}"
+    ttl: 1
+    proxied: "{{ cloudflare_proxied and cloudflare_only }}"
+    state: present
+    solo: true
+    comment: "xcplane-ansible-managed"
+  when: ipv6_ready
+########################################################
+- name: Cloudflare Task 5.1 - Remove AAAA record when IPv6 is unavailable
+  community.general.cloudflare_dns:
+    api_token: "{{ cloudflare_token }}"
+    zone: "{{ cloudflare_zone }}"
+    record: "{{ item }}"
+    type: AAAA
+    state: absent
+  loop:
+    - "{{ dns_hostname }}"
+    - "{{ ui_hostname }}"
+    - "{{ sub_hostname }}"
+  when: not ipv6_ready
+########################################################
+- name: Cloudflare Task 5.2 - Remove A record when IPv4 is unavailable
+  community.general.cloudflare_dns:
+    api_token: "{{ cloudflare_token }}"
+    zone: "{{ cloudflare_zone }}"
+    record: "{{ item }}"
+    type: A
+    state: absent
+  loop:
+    - "{{ dns_hostname }}"
+    - "{{ ui_hostname }}"
+    - "{{ sub_hostname }}"
+  when: not ipv4_ready
+########################################################

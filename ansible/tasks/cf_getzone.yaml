@@ -1,0 +1,53 @@
+---
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Extracts the zone from a hostname in Cloudflare. The companion Rust app already
+# extracts it, and this task remains auxiliary.
+########################################################
+- name: CF Zone Task 1 - Split base_hostname into labels
+  ansible.builtin.set_fact:
+    hostname_labels: "{{ base_hostname.split('.') }}"
+########################################################
+- name: CF Zone Task 2 - Build candidate zones
+  ansible.builtin.set_fact:
+    zone_candidates: "{{ zone_candidates | default([]) + [hostname_labels[item:] | join('.')] }}"
+  loop: "{{ range(0, hostname_labels | length) | list }}"
+########################################################
+- name: CF Zone Task 3 - Query Cloudflare for candidate zones
+  ansible.builtin.uri:
+    url: "https://api.cloudflare.com/client/v4/zones?name={{ item }}&status=active"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ cloudflare_token }}"
+      Content-Type: "application/json"
+    return_content: true
+  loop: "{{ zone_candidates }}"
+  register: zone_lookup
+########################################################
+- name: CF Zone Task 4 - Pick first matching zone
+  ansible.builtin.set_fact:
+    cloudflare_zone: "{{ the_output.item }}"
+    cloudflare_zone_id: "{{ the_output.json.result[0].id }}"
+  loop: "{{ zone_lookup.results }}"
+  loop_control:
+    loop_var: the_output
+    label: "Checking candidate: {{ the_output.item }}"
+  when:
+    - cloudflare_zone is not defined
+    - the_output.json.result is defined
+    - the_output.json.result | length > 0
+  no_log: true
+########################################################
+- name: CF Zone Task 5 - Ensure Cloudflare zone was found
+  ansible.builtin.assert:
+    that:
+      - cloudflare_zone is defined
+      - cloudflare_zone | length > 0
+      - cloudflare_zone_id is defined
+      - cloudflare_zone_id | length > 0
+    fail_msg: "Could not determine Cloudflare zone for {{ base_hostname }}"
+########################################################
+- name: CF Zone Task 6 - Print the found zone
+  ansible.builtin.debug:
+    msg: "Found the zone: {{ cloudflare_zone }}"
+########################################################

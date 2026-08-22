@@ -1,0 +1,12 @@
+[Unit]
+Description=Sets the system's DNS resolver to the internal private DoH
+After=dnscrypt-proxy.service
+
+[Service]
+RemainAfterExit=true
+Type=oneshot
+ExecStart=/usr/local/bin/restore_DoH.sh
+ExecStop=/usr/local/bin/restore_publicDNS.sh
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,155 @@
+name: Build and Package for Release
+on:
+  release:
+    types: [created]
+
+permissions:
+  contents: write
+
+jobs:
+  build-linux:
+    name: Build tar.gz & DEB Packages
+    runs-on: ubuntu-latest
+    container:
+      image: ubuntu:24.04
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Extract version from Cargo.toml and put in control file
+        id: extract_version
+        run: |
+          VERSION=$(grep '^version' Cargo.toml | head -n 1 | cut -d '"' -f2)
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          sed -i "s/@VERSION@/${VERSION}/g" .github/build-assets/debian-control
+
+      - name: Install packaging tools and deps
+        run: |
+          apt-get update
+          apt-get install -y devscripts debhelper rsync build-essential libsqlite3-0
+
+      - name: Set up Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Build binary & package as .tar.gz
+        run: |
+          mkdir -p dist
+          cargo build --release
+          cp target/release/xcplane dist/
+          ARCH=$(dpkg --print-architecture)
+          tar -czvf dist/xcplane-${{ env.VERSION }}-${ARCH}-linux.tar.gz -C dist xcplane
+          rm dist/xcplane
+
+      - name: Build .deb from the binary without dh-cargo
+        run: |
+          mkdir -p deb/usr/bin
+          cp target/release/xcplane deb/usr/bin/
+          mkdir deb/DEBIAN
+          cp .github/build-assets/debian-control deb/DEBIAN/control
+          dpkg-deb --build deb
+          mv deb.deb dist/xcplane_${{ env.VERSION }}_amd64.deb
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: dist/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # RPM build        
+  build-rpm:
+    name: Build RPM Package
+    runs-on: ubuntu-latest
+    container:
+      image: fedora:latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Extract version from Cargo.toml
+        id: extract_version
+        run: |
+          VERSION=$(grep '^version' Cargo.toml | head -n 1 | cut -d '"' -f2)
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Install RPM and Rust dependencies
+        run: |
+          dnf update -y
+          dnf install -y \
+              rust cargo \
+              sqlite-libs \
+              gcc make automake autoconf libtool \
+              rpm-build
+
+      - name: Set up RPM build structure
+        run: |
+          mkdir -p rpmbuild/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
+          sed "s/@VERSION@/${{ env.VERSION }}/g" .github/build-assets/fedora.spec > rpmbuild/SPECS/xcplane.spec
+          tar czf rpmbuild/SOURCES/xcplane-$VERSION.tar.gz --transform "s,^,xcplane-$VERSION/," .
+
+      - name: Build RPM
+        run: |
+          rpmbuild -ba rpmbuild/SPECS/xcplane.spec --define "_topdir $(pwd)/rpmbuild"
+
+      - name: Upload RPM
+        uses: softprops/action-gh-release@v1
+        with:
+          files: rpmbuild/RPMS/**/*.rpm
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Arch build        
+  build-arch:
+    name: Build Arch Package
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:base-devel
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Extract version from Cargo.toml & replace version in PKGBUILD
+        id: extract_version
+        run: |
+          VERSION=$(grep '^version' Cargo.toml | head -n 1 | cut -d '"' -f2)
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          sed -i "s/@VERSION@/${VERSION}/g" .github/build-assets/PKGBUILD
+
+      - name: Install system and build dependencies
+        run: |
+          pacman -Syu --noconfirm
+          pacman -S --noconfirm \
+            rsync cargo rust sqlite
+
+      - name: Add builder user and change ownership
+        run: |
+          useradd -m builder
+          chown -R builder .
+
+      - name: Create source tarball for Arch
+        run: |
+          mkdir -p buildsrc
+          rsync -a --exclude buildsrc ./ buildsrc/
+          cp .github/build-assets/PKGBUILD buildsrc/
+          mv buildsrc xcplane-${VERSION}
+          tar -czf xcplane-${VERSION}.tar.gz xcplane-${VERSION}
+
+      - name: Build package
+        run: |
+          su builder -c "makepkg -s --noconfirm"
+
+      - name: Upload .pkg.tar.zst
+        uses: softprops/action-gh-release@v1
+        with:
+          files: ./*.pkg.tar.zst
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

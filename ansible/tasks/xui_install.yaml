@@ -1,0 +1,145 @@
+---
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# The current application panel for xcplane is 3X-UI
+##########################################################
+- name: 3X-UI Installation Task 1 - Download the installation file
+  ansible.builtin.get_url:
+    url: 'https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh'
+    dest: '/usr/local/bin/3x_ui_install.sh'
+    mode: '0755'
+##########################################################
+- name: 3X-UI Installation Task 2 - Create x-ui uninstaller script
+  ansible.builtin.copy:
+    content: |
+      #! /bin/bash
+      if command -v x-ui &>/dev/null; then
+         yes | /usr/bin/x-ui uninstall
+      fi
+    dest: '/usr/local/bin/xui_uninstaller_script.sh'
+    mode: '0755'
+##########################################################
+- name: 3X-UI Installation Task 3 - Run the uninstaller script first
+  ansible.builtin.command:
+    cmd: '/usr/local/bin/xui_uninstaller_script.sh'
+    # removes: '/usr/bin/x-ui'
+  failed_when: false
+  changed_when: false
+##########################################################
+- name: 3X-UI Installation Task 4 - Now proceed with installing version {{ xui_version }}
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/3x_ui_install.sh
+      - "{{ xui_version }}"
+  register: xui_log
+  environment:
+    XUI_NONINTERACTIVE: "1"
+    XUI_SSL_MODE: none
+    XUI_DB_TYPE: sqlite
+    XUI_PANEL_PORT: "{{ ui_webport }}"
+    XUI_USERNAME: "{{ secrets.xui_username }}"
+    XUI_PASSWORD: "{{ secrets.xui_password }}"
+    XUI_WEB_BASE_PATH: "{{ secrets.xui_webpath }}"
+  changed_when: true
+##########################################################
+- name: 3X-UI Installation Task 5 - Fetch the installation log
+  ansible.builtin.include_role:
+    name: capture_output
+  vars:
+    capture_output_var: "{{ xui_log }}"
+    capture_output_filename: "xui_installation.log"
+    capture_output_mode: '0600'
+##########################################################
+- name: 3X-UI Installation Task 6 - Read the install result file
+  ansible.builtin.slurp:
+    src: '/etc/x-ui/install-result.env'
+  register: install_result_file
+##########################################################
+- name: 3X-UI Installation Task 7 - Parse the install result into dict
+  ansible.builtin.set_fact:
+    install_result: >-
+      {{
+        dict(
+          install_result_file.content
+          | b64decode
+          | regex_findall('(?m)^([^#=\s][^=]*)=(.*)$')
+        )
+      }}
+##########################################################
+- name: 3X-UI Installation Task 8 - Set-fact the random path, user, pass and token
+  ansible.builtin.set_fact:
+    ui_webpath: "{{ secrets.xui_webpath }}"
+    xui_username: "{{ secrets.xui_username }}"
+    xui_password: "{{ secrets.xui_password }}"
+    xui_token: "{{ install_result.XUI_API_TOKEN }}"
+##########################################################
+- name: 3X-UI Installation Task 9 - Set The local login url in xui_url
+  ansible.builtin.set_fact:
+    xui_url: "http://localhost:{{ ui_webport }}/{{ ui_webpath }}/"
+##########################################################
+- name: 3X-UI Installation Task 10 - Cookie
+  block:
+    - name: 3X-UI Installation Task 10.1 - Get the login page
+      ansible.builtin.uri:
+        url: "{{ xui_url }}"
+        method: GET
+        return_content: true
+      register: login_page
+
+    - name: 3X-UI Installation Task 10.2 - Extract and store the cookie
+      ansible.builtin.set_fact:
+        cookie_header: "3x-ui={{ login_page.cookies['3x-ui'] }}"
+##########################################################
+- name: 3X-UI Installation Task 11 - CSRF
+  block:
+    - name: 3X-UI Installation Task 11.1 - Mint a CSRF token for current session
+      ansible.builtin.uri:
+        url: "{{ xui_url }}csrf-token"
+        method: GET
+        headers:
+          Cookie: "{{ cookie_header }}"
+          Accept: "application/json"
+          X-Requested-With: "XMLHttpRequest"
+          Referer: "{{ xui_url }}"
+        return_content: true
+      register: csrf_res
+
+    - name: 3X-UI Installation Task 11.2 - Store the CSRF token
+      ansible.builtin.set_fact:
+        csrf_token: "{{ csrf_res.json.obj }}"
+##########################################################
+- name: 3X-UI Installation Task 12 - Try to login
+  ansible.builtin.uri:
+    url: "{{ xui_url }}login"
+    method: POST
+    body_format: json
+    status_code: [200, 202]
+    return_content: true
+    headers:
+      Content-Type: application/json
+      X-CSRF-Token: "{{ csrf_token }}"
+      Cookie: "{{ cookie_header }}"
+    body:
+      "username": "{{ xui_username }}"
+      "password": "{{ xui_password }}"
+  register: xui_login_res
+  failed_when: xui_login_res.cookies_string == "" or 'Invalid' in xui_login_res.json.msg
+##########################################################
+- name: 3X-UI Installation Task 13 - Login succeeded; store the credentials in a var
+  # Make sure that the urls have a trailing slash, or Rust Url joining will be problematic.
+  ansible.builtin.set_fact:
+    credentials: |
+      xui_url: "http://localhost:{{ ui_webport }}/{{ ui_webpath }}/"
+      xui_url_global: "https://{{ ui_hostname }}/{{ ui_webpath }}/"
+      xui_username: "{{ xui_username }}"
+      xui_password: "{{ xui_password }}"
+      xui_token: "{{ xui_token }}"
+##########################################################
+- name: 3X-UI Installation Task 14 - Write the credentials to a file with strict permission
+  ansible.builtin.include_role:
+    name: capture_output
+  vars:
+    capture_output_var: "{{ credentials }}"
+    capture_output_filename: "xui_credentials.yaml"
+    capture_output_mode: '0600'
+##########################################################

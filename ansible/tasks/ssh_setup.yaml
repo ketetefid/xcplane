@@ -1,0 +1,109 @@
+---
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# SSH configuration & hardening
+#
+# Passing ansible_port through -e option has the highest precedence
+# and any attempt to change it during a playbook run will be ignored,
+# which is the main reason we use an inventory file with our calls.
+#
+# We deploy the SSH policy via a file in sshd_config.d directory, and in Ubuntu
+# 24+, ports are set in the systemd socket service.
+########################################################
+- name: SSH Task 1 - Deploy SSH policy
+  ansible.builtin.copy:
+    # 00 takes the priority over everything else including the main config
+    dest: /etc/ssh/sshd_config.d/00-ansible.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      PermitRootLogin prohibit-password
+      PasswordAuthentication no
+      PubkeyAuthentication yes
+    validate: /usr/sbin/sshd -t -f %s
+########################################################
+- name: Task block 2
+  block:
+    - name: SSH Task 2.1 - Delete all SSH socket configs
+      ansible.builtin.file:
+        path: /etc/systemd/system/ssh.socket.d
+        state: absent
+
+    - name: SSH Task 2.2 - Create /etc/systemd/system/ssh.socket.d/ fresh
+      ansible.builtin.file:
+        path: /etc/systemd/system/ssh.socket.d
+        state: directory
+        mode: '0755'
+########################################################
+# While in a Rebase the two ports can't be the same, in an initial full setup
+# we would need to ensure the same port is not duplicated, if the user chose 22.
+- name: SSH Task 3 - Add additional SSH port {{ ssh_port }}
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/ssh.socket.d/override.conf
+    mode: "0644"
+    content: |
+      [Socket]
+      ListenStream=
+      {% for port in [ansible_port, ssh_port] | map('string') | unique %}
+      ListenStream=0.0.0.0:{{ port }}
+      ListenStream=[::]:{{ port }}
+      {% endfor %}
+########################################################
+- name: SSH Task 4
+  block:
+    - name: SSH Task 4.1 - set_fact the sshpre operation
+      ansible.builtin.set_fact:
+        op: sshpre
+
+    - name: SSH Task 4.2 - Open the new SSH port in firewall temporarily
+      ansible.builtin.include_tasks:
+        file: "{{ playbook_dir }}/tasks/nft_op.yaml"
+########################################################
+- name: SSH Task 5 - Reload systemd and restart the socket
+  ansible.builtin.systemd_service:
+    name: ssh.socket
+    daemon_reload: true
+    state: restarted
+########################################################
+- name: SSH Task 6 - Wait for SSH on the new port
+  ansible.builtin.wait_for:
+    host: "{{ ansible_host }}"
+    port: "{{ ssh_port }}"
+    timeout: 30
+  # Can we connect to it from localhost?
+  delegate_to: localhost
+########################################################
+- name: SSH Task 7 - Switch Ansible to the new SSH port
+  ansible.builtin.set_fact:
+    ansible_port: "{{ ssh_port }}"
+########################################################
+- name: SSH Task 8 - Reset SSH connection
+  ansible.builtin.meta: reset_connection
+########################################################
+- name: SSH Task 9 - Now remove the old SSH port
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/ssh.socket.d/override.conf
+    mode: "0644"
+    content: |
+      [Socket]
+      ListenStream=
+      ListenStream=0.0.0.0:{{ ssh_port }}
+      ListenStream=[::]:{{ ssh_port }}
+########################################################
+- name: SSH Task 10 - Reload systemd and restart the socket again
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+    name: ssh.socket
+    state: restarted
+########################################################
+- name: SSH Task 11 - Update nft set for SSH
+  block:
+    - name: SSH Task 11.1 - set_fact the sshpost operation
+      ansible.builtin.set_fact:
+        op: sshpost
+
+    - name: SSH Task 11.2 - Allow only the new SSH port in firewall
+      ansible.builtin.include_tasks:
+        file: "{{ playbook_dir }}/tasks/nft_op.yaml"
+########################################################

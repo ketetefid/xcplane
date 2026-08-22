@@ -1,0 +1,42 @@
+---
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Deletes older records in Cloudflare in a Rebase
+########################################################
+- name: Cloudflare operations
+  delegate_to: localhost
+  block:
+    # We delete based on key only (value field is omitted), meaning whatever the
+    # record value is, it will be deleted. The reason is that privacy is a
+    # priority in xcplane, and we want to ensure the old hostname can't find the
+    # new target.
+    - name: Cloudflare Del Task 1 - Delete old A records
+      community.general.cloudflare_dns:
+        api_token: "{{ cloudflare_token }}"
+        zone: "{{ rebase_data.rebase_domain.zone }}"
+        record: "{{ item }}"
+        type: A
+        state: absent
+      loop: >-
+        {{ [rebase_data.rebase_domain.dns,
+            rebase_data.rebase_domain.ui,
+            rebase_data.rebase_domain.sub]
+            | select('defined')
+            | list }}
+      when: rebase_data.rebase_domain.zone is defined
+    ########################################################
+    - name: Cloudflare Del Task 2 - Delete old AAAA records
+      community.general.cloudflare_dns:
+        api_token: "{{ cloudflare_token }}"
+        zone: "{{ rebase_data.rebase_domain.zone }}"
+        record: "{{ item }}"
+        type: AAAA
+        state: absent
+      loop: >-
+        {{ [rebase_data.rebase_domain.dns,
+            rebase_data.rebase_domain.ui,
+            rebase_data.rebase_domain.sub]
+            | select('defined')
+            | list }}
+      when: rebase_data.rebase_domain.zone is defined
+    ########################################################

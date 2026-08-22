@@ -1,0 +1,22 @@
+---
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+- name: Master Playbook
+  hosts: "{{ node_name }}"
+  gather_facts: true
+  any_errors_fatal: true
+
+  pre_tasks:
+    - name: Load the needed variables and check them
+      ansible.builtin.include_tasks:
+        file: "{{ playbook_dir }}/tasks/var_loading.yaml"
+
+  tasks:
+    - name: Do the requested action(s)
+      ansible.builtin.include_tasks:
+        file: "{{ playbook_dir }}/tasks/{{ the_task }}"
+      loop: "{{ ansible_tasks | default([]) }}"
+      loop_control:
+        loop_var: the_task
+        label: "Running {{ the_task }}"
+
