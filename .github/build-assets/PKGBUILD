@@ -6,6 +6,8 @@ arch=('x86_64')
 url="https://github.com/ketetefid/xcplane"
 license=('GPL-3.0-or-later')
 depends=('glibc' 'sqlite')
+# lto breaks linking in the final phase as ring crate uses hand-written assembly
+options=('!lto' '!debug')
 makedepends=('cargo')
 source=("$pkgname-$pkgver.tar.gz")
 sha256sums=('SKIP')

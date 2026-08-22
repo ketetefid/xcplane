@@ -28,7 +28,7 @@ jobs:
       - name: Install packaging tools and deps
         run: |
           apt-get update
-          apt-get install -y devscripts debhelper rsync build-essential libsqlite3-0
+          apt-get install -y devscripts debhelper rsync build-essential libsqlite3-dev
 
       - name: Set up Rust toolchain
         uses: actions-rs/toolchain@v1
@@ -84,7 +84,7 @@ jobs:
           dnf update -y
           dnf install -y \
               rust cargo \
-              sqlite-libs \
+              sqlite-devel \
               gcc make automake autoconf libtool \
               rpm-build
 
@@ -138,8 +138,8 @@ jobs:
       - name: Create source tarball for Arch
         run: |
           mkdir -p buildsrc
+          cp .github/build-assets/PKGBUILD ./
           rsync -a --exclude buildsrc ./ buildsrc/
-          cp .github/build-assets/PKGBUILD buildsrc/
           mv buildsrc xcplane-${VERSION}
           tar -czf xcplane-${VERSION}.tar.gz xcplane-${VERSION}
 
