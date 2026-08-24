@@ -197,7 +197,7 @@
       community.general.cloudflare_dns:
         api_token: "{{ cloudflare_token }}"
         zone: "{{ cloudflare_zone }}"
-        record: "_acme-challenge"
+        record: "{{ acme_challenge_record }}"
         type: TXT
         value: "temporary-acme-cleanup-placeholder"
         ttl: 120
@@ -208,7 +208,7 @@
       community.general.cloudflare_dns:
         api_token: "{{ cloudflare_token }}"
         zone: "{{ cloudflare_zone }}"
-        record: "_acme-challenge"
+        record: "{{ acme_challenge_record }}"
         type: TXT
         state: absent
 ########################################################
