@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.2] - 2026-08-26
+
+### Fixed
+
+- nftables config should not have blank lines in set definitions
+
 ## [0.1.1] - 2026-08-24
 
 ### Fixed
