@@ -69,10 +69,7 @@ The standalone binary will be built in `./target/release/`
 
 ## Quick start
 
-The quick start video demonstrates adding Offgrid servers, expanding the cloud into
-Production, and reconciling several configuration changes.
-
-![Quick Start](docs/media/xcplane.mp4)
+The [quick start video](https://github.com/ketetefid/xcplane/raw/refs/heads/main/docs/media/xcplane.mp4) (also available on [YouTube](https://youtu.be/AOxRsu2oSZM)) demonstrates adding Offgrid servers, expanding the cloud into Production, and reconciling several configuration changes.
 
 For the written procedure, see [Getting Started](docs/getting-started.md).
 
