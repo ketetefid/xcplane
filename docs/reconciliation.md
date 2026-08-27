@@ -65,6 +65,29 @@ are added.
 The only exception is the Nginx health-path which is a deterministic value
 derived from the server's domain and subdomains.
 
+## Server names and reconciliation
+
+The servers in the fleet are distinguishable by their names. After a server is
+provisioned, its name cannot be altered in any case, as renaming a server equals
+deleting and readding it. This means a renamed server will lose its identity.
+
+If the user intentionally wants to trigger this flow, the server state must also
+be reverted back to Offgrid or the reconciliation might encounter an error.
+
+If a server was renamed accidentally, its state can still be recovered. See
+[Restoration to a previous state](db-backup-restore.md#restoration-to-a-previous-state).
+
+## Dead ends in reconciliation
+
+While some reconciliation patterns are not accepted by xcplane, it allows the
+user to perform any combination of Reload, Remap and Rebase. However, not every
+combination leads to a meaningful state, and the user is responsible for
+following a proper pattern.
+
+If reconciliation has encountered a dead end, and the daemon cannot start,
+[manual restoration](db-backup-restore.md#restoration-to-a-previous-state)
+might become necessary.
+
 ## Examples
 
 Please see the [quick start video](media/xcplane.mp4) where all three forms of

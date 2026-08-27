@@ -40,3 +40,16 @@ The database resides in `data directory`:
 or 
 
 `/var/lib/xcplane/cloud.db`
+
+## Restoration to a previous state
+
+xcplane backs up the DB and the cloud config before attempting a
+reconciliation. Therefore, the previous states can still be recovered.
+
+To recover a previous state of the cloud, first the daemon must be shut down,
+and then the desired version of DB from `Cloud-Backups` directory must replace
+the cloud DB file.
+
+Note that manual restoration of DB is an emergency action and should not be
+practiced normally, as the remote state of the fleet might have diverged
+significantly from the chosen version.

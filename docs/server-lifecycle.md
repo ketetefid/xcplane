@@ -69,6 +69,12 @@ followed by a Reload in order to refresh the secrets. Because unless the secrets
 are refreshed, xcplane will know that it has been Production before and
 re-provisioning will not be performed on an ex-Production unit.
 
+## Name and identity
+
+The identity of a server is tied to its name, and a Production server cannot be
+renamed. Changing a server's name equals deleting and readding it to the fleet,
+and its identity will be lost in this process.
+
 # Read more
 
 [Reconciliation](reconciliation.md)

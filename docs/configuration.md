@@ -128,6 +128,11 @@ traffic = 2000
 expiry = 365
 comment = "trial"
 ```
+## Names of servers and inbounds
+
+The chosen names for servers make them distinguishable from each other, and the
+same applies to inbounds. After a server becomes Production, it cannot be
+renamed, or it will lose its identity.
 
 ## Server state
 
