@@ -3,6 +3,8 @@
 use chrono::Utc;
 use futures_util::TryStreamExt;
 use reqwest::{self, Client, Response, StatusCode, cookie::Jar, header as Header};
+use std::fs::{Permissions, set_permissions};
+use std::os::unix::fs::PermissionsExt;
 use std::process::Output;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
@@ -284,12 +286,16 @@ impl KetServer {
         let backup_dir_path = workspace.dirs.data_dir.join(XUI_BACKUP_DIR);
         if !backup_dir_path.exists() {
             fs::create_dir(&backup_dir_path).await?;
+            // Data dir is already 700, and we set 700 for XUI backup dir too
+            set_permissions(&backup_dir_path, Permissions::from_mode(0o700))?;
         }
 
         let backup_path = backup_dir_path.join(&fname);
         let mut file = fs::File::create(&backup_path).await?;
 
         io::copy(&mut reader, &mut file).await?;
+
+        set_permissions(&backup_path, Permissions::from_mode(0o600))?;
 
         // For the sake of uniformity, instead of returning () we chose Output
         // like the Ansible calls.

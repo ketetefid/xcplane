@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.3] - 2026-08-27
+
+### Added
+
+- More robust handling of backup directories
+
 ## [0.1.2] - 2026-08-26
 
 ### Fixed

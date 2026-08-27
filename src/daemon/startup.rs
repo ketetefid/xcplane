@@ -267,7 +267,8 @@ pub async fn check_prereq(workspace: &WorkSpace) -> Result<DaemonPrereq, BoxErro
     let cf_auth = toml::from_str::<CFAuth>(&cf_auth_str)?;
     let cf_client = create_cf_client(&cf_auth.cloudflare_api_token)?;
 
-    // Check the backup path and warn if they can clash with server folders
+    // Check the backup paths and warn if they can clash with server
+    // folders. Also create them with strict permission early.
     for path in [CLOUD_BACKUP_DIR, XUI_BACKUP_DIR] {
         if is_proper(path) {
             warn!(
@@ -276,7 +277,13 @@ pub async fn check_prereq(workspace: &WorkSpace) -> Result<DaemonPrereq, BoxErro
                 path
             );
         }
+
+        let backup_path = workspace.dirs.data_dir.join(path);
+        std::fs::create_dir_all(&backup_path)?;
+
+        set_permissions(&backup_path, Permissions::from_mode(0o700))?;
     }
+
     // And check the validity of the supplied Cloudflare token
     info!("checking validity of the supplied Cloudflare token");
     test_cf_token(&cf_client).await?;
@@ -482,7 +489,7 @@ fn check_ansible() -> Result<(), BoxError> {
 
             return Err(
                 "Ansible is absent from the system. Install a recent version \
-		 (ansible-core >= 2.19) according to the official documentation at:\n\
+		 (ansible-core >= 2.19) according to the official documentation at: \
 		 https://docs.ansible.com/projects/ansible/latest/installation_guide/index.html"
                     .into(),
             );
