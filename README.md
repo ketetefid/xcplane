@@ -96,3 +96,11 @@ See [SECURITY.md](SECURITY.md) for reporting security vulnerabilities.
 ## License
 
 GPL-3.0-or-later.
+
+## Support xcplane
+
+xcplane is free and open-source software. If you find it useful, you may
+consider supporting its continued development and maintenance:
+
+- **[via cryptocurrency](https://storij.net/donate)**
+- **[via Buy Me a Coffee](https://buymeacoffee.com/ketak)**
