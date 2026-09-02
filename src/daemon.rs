@@ -23,21 +23,22 @@ use tokio::task::JoinHandle;
 use tokio_rusqlite::Connection as SqlConn;
 use tracing::{info, instrument};
 
+use crate::ansible::destroy_server;
 use crate::cli::{
-    CloudSummary, ExpandOpts, RebaseOpts, ReplyFormat, ServerCreds, ServerSummary, ShowSecrets,
-    StatusOpts, SvcHealthSummary, SvcSummary, TaskSummary,
+    CloudSummary, DestroyOpts, ExpandOpts, RebaseOpts, ReplyFormat, ServerCreds, ServerSummary,
+    ShowSecrets, StatusOpts, SvcHealthSummary, SvcSummary, TaskSummary,
 };
-use crate::cloud::parse_cloud_config;
 use crate::cloud::reconcile::{RebaseData, ReconMode, create_rebase_data};
+use crate::cloud::{parse_cloud_config, spawn_task};
 use crate::constants::{EXIT_REBASE, EXIT_RELOAD, EXIT_REMAP, EXIT_RESTART, PID_NAME, SOCKET_NAME};
 use crate::db::create_backup;
 use crate::types::{
-    BoxError, Cloud, Daemon, DashAction, ServerState, SvcEntry, SvcHealth, TaskEntry, TaskMap,
-    WorkSpace,
+    BoxError, Cloud, Daemon, DashAction, ServerState, SvcEntry, SvcHealth, TaskEntry, TaskHandle,
+    TaskMap, WorkSpace,
 };
 
 /// The list of commands that are used for channel communication with the the
-/// daemon. It is used in forwarding CLI commands that are sent to the
+/// daemon. Most are used in forwarding CLI commands that are sent to the
 /// socket. See [`crate::cli::CliComm`] and refer to
 /// [`crate::cloud::reconcile::reconcile_cloud`] for more information.
 pub enum DaemonComm {
@@ -51,6 +52,12 @@ pub enum DaemonComm {
     Expand(ExpandOpts),
     Credentials(ShowSecrets),
     Clients,
+    /// Used for a real-time check if a sibling full setup or destruction task
+    /// is running. This is an internal command and is not coupled with any
+    /// CliComm.
+    SetupInquiry(TaskEntry),
+    Destroy(DestroyOpts),
+    /// Any unwanted or misplaced command from the socket is matched to this
     Unknown,
 }
 
@@ -67,6 +74,7 @@ pub enum DaemonReply {
     Status(CloudSummary),
     Credentials(HashMap<String, ServerCreds>),
     Clients(HashMap<String, String>),
+    SetupInquiry(bool),
 }
 
 /// When daemon exits, this struct carries data to be used in the next run
@@ -141,6 +149,10 @@ impl fmt::Display for DaemonComm {
             }
             DaemonComm::Credentials(ShowSecrets { show_all: false }) => write!(f, "Credentials"),
             DaemonComm::Clients => write!(f, "Clients"),
+            DaemonComm::SetupInquiry(task_entry) => {
+                write!(f, "Inquiry on {}", task_entry.nice_display())
+            }
+            DaemonComm::Destroy(DestroyOpts { server }) => write!(f, "Destroy {server}"),
         }
     }
 }
@@ -439,6 +451,87 @@ pub async fn get_cloud_clients(cloud: &Cloud) -> Result<DaemonReply, BoxError> {
     }
 
     Ok(DaemonReply::Clients(clients))
+}
+// =============================================================
+/// Checks the given server to be destroyed and applies the destruction
+pub async fn perform_server_destruction(
+    cloud: &Cloud,
+    conn: Arc<SqlConn>,
+    name: &str,
+    taskmap: &mut TaskMap,
+    workspace: Arc<WorkSpace>,
+    txd: Sender<DaemonRequest>,
+) -> Result<DaemonReply, BoxError> {
+    if let Some(server) = cloud.servers.iter().find(|s| s.name == name) {
+        match (server.state.load(), server.enabled) {
+            (ServerState::Offgrid, _) => {
+                return Err(format!("Server '{}' is already Offgrid.", server.name).into());
+            }
+
+            (ServerState::Production, false) => {
+                return Err(format!("Server '{}' is disabled.", server.name).into());
+            }
+
+            (ServerState::Production, true) => {
+                // Unlike cloud expansion, we match for destruction on exactly the
+                // same server
+                let entry_opt = taskmap
+                    .tasks
+                    .keys()
+                    .find(|key| *key == &TaskEntry::DestroyServer(server.clone()))
+                    .cloned();
+
+                if let Some(entry) = entry_opt {
+                    let handle = taskmap
+                        .tasks
+                        .get(&entry)
+                        .ok_or("There is no TaskHandle associated with TaskEntry::DestroyServer")?;
+
+                    if handle.is_finished() {
+                        /*
+                        If the task has finished, and we still got here, it
+                        means our attempt for destroying the server has been
+                        unsuccessful. Unlike full setup, we won't opt for a
+                        retry and return an error instead.
+                         */
+                        return Err(format!(
+                            "Destruction operation has failed for server \
+			     '{}' and it is still Production.",
+                            server.name
+                        )
+                        .into());
+                    } else {
+                        let mes = format!(
+                            "Destruction operation is already going on for server '{}'",
+                            server.name
+                        );
+
+                        return Ok(DaemonReply::Message(mes));
+                    }
+                } else {
+                    // The destruction operation has never been performed on
+                    // the server (in this state of DaemonNext)
+                    let entry = TaskEntry::DestroyServer(server.clone());
+                    let jh = spawn_task(
+                        destroy_server(conn, server.clone(), workspace, txd),
+                        entry.clone(),
+                    );
+
+                    taskmap
+                        .tasks
+                        .entry(entry)
+                        .or_insert(TaskHandle::Detached(jh));
+
+                    return Ok(DaemonReply::Message(format!(
+                        "Server '{}' is being destroyed.",
+                        server.name
+                    )));
+                }
+            }
+        }
+    } else {
+        return Err(format!("Server '{}' does not exist in the cloud.", name).into());
+    }
 }
 // =============================================================
 /// Prepares a summary of the running cloud which is later given to the user as

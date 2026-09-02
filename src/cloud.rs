@@ -34,6 +34,7 @@ impl TaskEntry {
             | TaskEntry::XrayMonitor(svc) => Some(&svc.server.name),
 
             TaskEntry::FullSetup(server)
+            | TaskEntry::DestroyServer(server)
             | TaskEntry::XuiDbPruner(server)
             | TaskEntry::AcmeChecker(server) => Some(&server.name),
 
@@ -51,6 +52,7 @@ impl TaskEntry {
             | TaskEntry::XrayMonitor(svc) => Some(svc.kind.nice_display()),
 
             TaskEntry::FullSetup(_)
+            | TaskEntry::DestroyServer(_)
             | TaskEntry::XuiDbPruner(_)
             | TaskEntry::AcmeChecker(_)
             | TaskEntry::SocketListener
@@ -68,6 +70,7 @@ impl TaskEntry {
             | TaskEntry::GeoipUpdater => info_span!("monitor", task = %self),
 
             TaskEntry::FullSetup(server)
+            | TaskEntry::DestroyServer(server)
             | TaskEntry::XuiDbPruner(server)
             | TaskEntry::AcmeChecker(server) => info_span!(
                 "monitor",
@@ -430,7 +433,7 @@ pub async fn expand_cloud(
         (None, _, Some(server)) => server,
         (None, _, None) => {
             return Err(
-                "No fresh, enabled and offgrid server is available for setup. Add a new \
+                "No fresh and enabled offgrid server is available for setup. Add a new \
 		 server to the cloud config and reload the daemon."
                     .into(),
             );
@@ -457,7 +460,7 @@ pub async fn expand_cloud(
                     "Expansion in progress: full setup is already running for server '{}'",
                     server.name
                 );
-                info!("{}", res);
+
                 return Ok(DaemonReply::Message(res));
             }
         }
@@ -468,14 +471,13 @@ pub async fn expand_cloud(
     // Do the setup when either no setup has been done, or one has been
     // attempted and has finished/failed.
     if !is_setup_running {
-        // In the registry we store it with the setup_prefix
+        // Store the server setup entry and its joinhandle in the taskmap
         let task_entry = TaskEntry::FullSetup(final_server.clone());
 
         let jh = spawn_task(
-            full_setup(sql_conn, Some(tx), final_server.clone(), workspace),
+            full_setup(sql_conn, tx, final_server.clone(), workspace),
             task_entry.clone(),
         );
-        // Store the server setup joinhandle in the taskmap, too
         taskmap
             .tasks
             .entry(task_entry)

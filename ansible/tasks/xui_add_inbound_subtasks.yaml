@@ -83,14 +83,14 @@
     headers: "{{ xui_auth_headers }}"
   register: xui_get_inbounds
 ##########################################################
-- name: Add Inbound Subask 7 - Save the inbound to a file
+- name: Add Inbound Subtask 7 - Save the inbound to a file
   ansible.builtin.include_role:
     name: capture_output
   vars:
     capture_output_var: "{{ xui_get_inbounds.json.obj | ansible.builtin.to_nice_json }}"
     capture_output_filename: "xui_mother_inbound_{{ the_inbound.name }}.json"
 ##########################################################
-- name: Add Inbound Subask 8 - Save the json sublink to a file
+- name: Add Inbound Subtask 8 - Save the json sublink to a file
   ansible.builtin.include_role:
     name: capture_output
   vars:

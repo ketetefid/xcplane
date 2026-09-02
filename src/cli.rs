@@ -73,6 +73,15 @@ pub enum CliComm {
 
     /// Shows the clients of production servers and their sublinks
     Clients,
+
+    /// Destroys the production server and turns it into Offgrid so that a full
+    /// setup can be performed again. This is a destructive operation intended
+    /// primarily for development and recovery, and normal server lifecycle
+    /// management does not require it, since in xcplane the fluid state of
+    /// infrastructure is fully maintained using the three reconciliation modes
+    /// Reload, Remap and Rebase.
+    #[command(hide = true)]
+    Destroy(DestroyOpts),
 }
 
 /// The response that is given back to the socket. This response will be
@@ -172,6 +181,14 @@ pub struct StatusOpts {
     #[arg(short, long)]
     pub full: bool,
 }
+
+#[derive(Args, Clone, Debug, Serialize, Deserialize)]
+pub struct DestroyOpts {
+    /// The name of the server which will be destroyed
+    #[arg(short, long)]
+    pub server: String,
+}
+
 ///////////////////////////////////////////////////////////////////
 // ============================================================= //
 ///////////////////////////////////////////////////////////////////
@@ -206,6 +223,7 @@ impl CliComm {
             CliComm::Expand(expand_opts) => DaemonComm::Expand(expand_opts),
             CliComm::Creds(show_secrets) => DaemonComm::Credentials(show_secrets),
             CliComm::Clients => DaemonComm::Clients,
+            CliComm::Destroy(destroy_opts) => DaemonComm::Destroy(destroy_opts),
 
             /*
             CliComm::Daemon variant directly starts the daemon itself and

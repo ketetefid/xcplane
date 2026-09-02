@@ -1,0 +1,36 @@
+---
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Checks if any of xcplane-managed ports are already occupied on the server or not
+########################################################
+- name: Port Checking Task 1 - {{ new_ports }}
+  ansible.builtin.command:
+    argv:
+      - ss
+      - -tlnuH
+      - "sport = :{{ port }}"
+  register: ports_check
+  loop: "{{ new_ports }}"
+  loop_control:
+    loop_var: port
+  changed_when: false
+########################################################
+- name: Port Checking Task 2 - Ensure all the ports are available for xcplane
+  ansible.builtin.assert:
+    that:
+      - >-
+        ports_check.results
+        | rejectattr('stdout', 'equalto', '')
+        | list
+        | length == 0
+
+    fail_msg: >-
+      one or more xcplane-managed ports are already in use:
+      {{
+        ports_check.results
+        | rejectattr('stdout', 'equalto', '')
+        | map(attribute='port')
+        | list
+        | join(', ')
+      }}
+########################################################

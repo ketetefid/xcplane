@@ -3,23 +3,24 @@
 
 # Installs necessary packages
 ########################################################
-- name: Wait for possible apt lock
+- name: Basics Install Task 1 - Wait for possible apt lock
   ansible.builtin.shell: |
     while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do
       sleep 5
     done
   changed_when: false
 ########################################################
-- name: Basics Install Task 1 - Bootstrap python apt bindings
+- name: Basics Install Task 2 - Bootstrap python apt bindings
   ansible.builtin.raw: |
     apt-get update
     apt-get install -y python3-apt
   changed_when: false
 ########################################################
-- name: Basics Install Task 2 - Install some basic prerequisites on the server
+- name: Basics Install Task 3 - Install some basic prerequisites on the server
   ansible.builtin.apt:
     pkg:
       - rsync
+      - iproute2
       - nano
       - tmux
       - curl

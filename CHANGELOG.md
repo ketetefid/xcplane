@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.2.0] - 2026-09-02
+
+### Added
+
+- Handling port conflict with existing local services before full setup or Rebase
+- Server destruction and conversion from Production to Offgrid as a developer tool
+- Enhancements to full setup process
+
+### Changed
+
+- Replacing deprecated apt_repository module in Ansible
+- Code cleanup
+
 ## [0.1.3] - 2026-08-27
 
 ### Added

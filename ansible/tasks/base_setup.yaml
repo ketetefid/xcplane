@@ -3,35 +3,39 @@
 
 # Prepares the system for xui panel installation
 ########################################################
-- name: Base Setup Task 1 - Reset DNS
+- name: Base Setup Task 1 - Check Ports
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/check_ports.yaml"
+########################################################
+- name: Base Setup Task 2 - Reset DNS
   ansible.builtin.include_tasks:
     file: "{{ playbook_dir }}/tasks/dns_reset.yaml"
 ########################################################
-- name: Base Setup Task 2 - Install basics
+- name: Base Setup Task 3 - Install basics
   ansible.builtin.include_tasks:
     file: "{{ playbook_dir }}/tasks/basics_install.yaml"
 ########################################################
-- name: Base Setup Task 3 - Setup Cloudflare
+- name: Base Setup Task 4 - Setup Cloudflare
   ansible.builtin.include_tasks:
     file: "{{ playbook_dir }}/tasks/cloudflare_setup.yaml"
 ########################################################
-- name: Base Setup Task 4 - Get certificates for the domain
+- name: Base Setup Task 5 - Get certificates for the domain
   ansible.builtin.include_tasks:
     file: "{{ playbook_dir }}/tasks/acme_get_cert.yaml"
 ########################################################
-- name: Base Setup Task 5 - Install Nginx
+- name: Base Setup Task 6 - Install Nginx
   ansible.builtin.include_tasks:
     file: "{{ playbook_dir }}/tasks/nginx_setup.yaml"
 ########################################################
-- name: Base Setup Task 6 - Install DoH server
+- name: Base Setup Task 7 - Install DoH server
   ansible.builtin.include_tasks:
     file: "{{ playbook_dir }}/tasks/doh_setup.yaml"
 ########################################################
-- name: Base Setup Task 7 - Bootstrap Firewall
+- name: Base Setup Task 8 - Bootstrap Firewall
   ansible.builtin.include_tasks:
     file: "{{ playbook_dir }}/tasks/firewall_bootstrap.yaml"
 ########################################################
-- name: Base Setup Task 8 - Update outblocked and cloudflare sets
+- name: Base Setup Task 9 - Update outblocked and cloudflare sets
   ansible.builtin.include_tasks:
     file: "{{ playbook_dir }}/tasks/outblocked_update.yaml"
 ########################################################

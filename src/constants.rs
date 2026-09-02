@@ -114,6 +114,7 @@ pub const ANSIBLE_DIR: &str = concat!("Ansible-Files/", env!("CARGO_PKG_VERSION"
 pub const MASTER_PLAYBOOK: &str = "master_playbook.yaml";
 
 // Setting names for Ansible task filenames as easier references
+pub const PORTS_CHECK: &str = "check_ports.yaml";
 pub const FULL_SETUP: &str = "full_setup.yaml";
 pub const BASE_SETUP: &str = "base_setup.yaml";
 pub const BASICS: &str = "basics_install.yaml";
@@ -140,6 +141,7 @@ pub const NGINX_FIX1: &str = "nginx_restart.yaml";
 pub const NGINX_FIX2: &str = "nginx_restore_config.yaml";
 pub const XRAY_FIX1: &str = "xui_restart.yaml";
 pub const XRAY_FIX2: &str = "xui_restore_db.yaml";
+pub const DESTROY_SERVER: &str = "destroy_server.yaml";
 
 /// The name of cloud configuration file
 pub const CLOUD_CONFIG: &str = "cloud.toml";

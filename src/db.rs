@@ -21,7 +21,8 @@ use url::Host;
 
 use crate::ansible::AnsibleConn;
 use crate::constants::{
-    CLOUD_BACKUP_DIR, CLOUD_CONFIG, CLOUD_DB, FIX_THRESHOLD, ROOT_USER, SVC_MON_INTERVAL,
+    ANSIBLE_PORT, CLOUD_BACKUP_DIR, CLOUD_CONFIG, CLOUD_DB, FIX_THRESHOLD, ROOT_USER,
+    SVC_MON_INTERVAL,
 };
 use crate::types::{
     AtomicServerState, BoxError, Cloud, CloudSettings, Inbound, InboundKind, KetServer, Secrets,
@@ -575,6 +576,73 @@ pub async fn mark_server_production(
     }
 
     fs::write(&config_path, cloud.to_string()).await?;
+
+    Ok(())
+}
+// =============================================================
+/// When a server is destroyed, this function changes its state to Offgrid
+/// in the DB and cloud config file.
+pub async fn mark_server_offgrid(
+    workspace: Arc<WorkSpace>,
+    conn: Arc<SqlConn>,
+    server: Arc<KetServer>,
+) -> Result<(), BoxError> {
+    // Changing the runtime state
+    server.state.store(ServerState::Offgrid);
+
+    let ansible_conn = server
+        .ansible_conn
+        .load_full()
+        .ok_or("Couldn't get AnsibleConn in mark_server_production.")?;
+
+    // Reverting ansible_port back to 22
+    let updated_conn = AnsibleConn {
+        ansible_host: ansible_conn.ansible_host.clone(),
+        ansible_port: Some(ANSIBLE_PORT),
+        ansible_user: ansible_conn.ansible_user,
+        ansible_connection: None,
+    };
+    server.ansible_conn.store(Some(Arc::new(updated_conn)));
+
+    let the_server = server.clone();
+
+    // An Offgrid server has an uninitialized xui_token
+    conn.call(move |conn| {
+        conn.execute(
+            "UPDATE servers SET state = ?2, xui_token = ?3 WHERE name = ?1",
+            params![
+                server.name,
+                ServerState::Offgrid.to_string(),
+                None::<String>
+            ],
+        )?;
+
+        Ok::<(), SqlErr>(())
+    })
+    .await?;
+
+    // Update the cloud config file and mark the server as Offgrid
+    let config_path = workspace.dirs.config_dir.join(CLOUD_CONFIG);
+    let cloud_config = fs::read_to_string(&config_path).await?;
+
+    let mut cloud = cloud_config.parse::<DocumentMut>()?;
+
+    let servers = cloud["servers"]
+        .as_array_of_tables_mut()
+        .ok_or("servers must be an array of tables in cloud config.")?;
+
+    if let Some(server) = servers
+        .iter_mut()
+        .find(|s| s["name"].as_str() == Some(the_server.name.as_str()))
+    {
+        server["state"] = toml_value("Offgrid");
+    }
+
+    fs::write(&config_path, cloud.to_string()).await?;
+
+    // Deleting the server data directory
+    let server_data_dir = workspace.dirs.data_dir.join(&the_server.name);
+    fs::remove_dir_all(&server_data_dir).await?;
 
     Ok(())
 }

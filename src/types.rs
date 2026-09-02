@@ -71,6 +71,7 @@ pub enum TaskEntry {
     SignalWatcher,
     Aggregator,
     FullSetup(Arc<KetServer>),
+    DestroyServer(Arc<KetServer>),
     XuiDbPruner(Arc<KetServer>),
     AcmeChecker(Arc<KetServer>),
     GeoipUpdater,

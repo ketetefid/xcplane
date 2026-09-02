@@ -352,7 +352,11 @@ async fn deploy_rebase(
         }
 
         if old_server.ssh_port != new_server.ssh_port {
-            ansible_actions.append(&mut vec![AnsibleAction::SSH, AnsibleAction::Fail2ban]);
+            ansible_actions.append(&mut vec![
+                AnsibleAction::PortsCheck,
+                AnsibleAction::SSH,
+                AnsibleAction::Fail2ban,
+            ]);
         }
 
         let old_cfstate = old_server.cfstate.load();
@@ -396,8 +400,11 @@ async fn deploy_rebase(
             }
 
             if !rebase.added_inbounds.is_empty() {
-                ansible_actions
-                    .append(&mut vec![AnsibleAction::XuiAuth, AnsibleAction::AddInbound]);
+                ansible_actions.append(&mut vec![
+                    AnsibleAction::PortsCheck,
+                    AnsibleAction::XuiAuth,
+                    AnsibleAction::AddInbound,
+                ]);
             }
         }
 

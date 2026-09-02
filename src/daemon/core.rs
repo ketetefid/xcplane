@@ -11,7 +11,7 @@ use tracing::{debug, error, info_span, warn};
 use super::{
     DaemonComm, DaemonLock, DaemonNext, DaemonPrereq, DaemonReply, DaemonRequest, DaemonRuntime,
     ReconMode, SvcComm, build_servers_creds, check_and_backup, get_cloud_clients, get_summary,
-    log_command, sigx_watcher,
+    log_command, perform_server_destruction, sigx_watcher,
     startup::{acquire_lock, check_prereq, prepare_runtime, prepare_workspace, validate_workspace},
 };
 
@@ -507,6 +507,37 @@ async fn daemon_core(
 			let clients_result = get_cloud_clients(&the_cloud).await;
 
 			let _ = cmd.reply.send(clients_result);
+		    }
+
+		    DaemonComm::Destroy(destroy_opts) => {
+			log_command(&cmd_str);
+			let destroy_result = perform_server_destruction(
+			    &the_cloud,
+			    sqlconn.clone(),
+			    &destroy_opts.server,
+			    &mut taskmap,
+			    workspace.clone(),
+			    txd.clone()
+			).await;
+
+			let _ = cmd.reply.send(destroy_result);
+		    }
+
+		    DaemonComm::SetupInquiry(entry) => {
+			log_command(&cmd_str);
+			// The inquiry is always made when full setup or
+			// destruction has been completed successfully.
+			// Therefore, it is removed from taskmap.
+			taskmap.tasks.remove_entry(&entry);
+
+			// Is there any other running full setup or destruction
+			// operation?
+			let found = taskmap.tasks.iter().any(|(task, handle)| {
+			    matches!(task, TaskEntry::FullSetup(_) | TaskEntry::DestroyServer(_))
+				&& !handle.is_finished()
+			});
+
+			let _ = cmd.reply.send(Ok(DaemonReply::SetupInquiry(found)));
 		    }
 
 		    // Unsupported CliComm interactions are matched with this

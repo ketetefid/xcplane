@@ -23,6 +23,7 @@
 #     pub unbound_https_port: u16,          // defaults to UNBOUND_PORT
 #     pub ui_webport: u16,                  // defaults to UI_PORT
 #     pub sub_port: u16,                    // defaults to SUB_PORT
+#     pub new_ports: Vec<u16>               // prospective ports for checking
 #     pub nftops: HashMap<String, PathBuf>, // paths to all nft rule files
 #     pub inbound_data: Vec<Inbound>,       // ketserver.inbounds
 #     pub rebase_data: Option<RebaseData>,  // generated when reconciliation
@@ -125,6 +126,8 @@
       - unbound_https_port is number # the https port at which the unbound service will run
       - ui_webport is number # the port at which the 3x-ui web service will run
       - sub_port is number # the port at which the 3x-ui sub service will run
+
+      - new_ports is defined
 
       - nftops is defined # containing the dict of nft names -> nft path
 

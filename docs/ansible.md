@@ -30,29 +30,31 @@ The current action model includes the following in order:
 
 | ID |    AnsibleAction   |
 | -- | ------------------ |
-| 0  | DnsReset           |
-| 1  | Basics             |
-| 2  | CloudflareDel      |
-| 3  | Cloudflare         |
-| 4  | Acme               |
-| 5  | Nginx              |
-| 6  | DoH                |
-| 7  | FirewallBootstrap  |
-| 8  | OutblockedUpdate   |
-| 9  | BaseSetup          |
-| 10 | FullSetup          |
-| 11 | NginxRestart       |
-| 12 | NginxRestoreConfig |
-| 13 | XrayRestart        |
-| 14 | XrayRestoreDB      |
-| 15 | Bootstrap          |
-| 16 | XuiAuth            |
-| 17 | DelInbound         |
-| 18 | AddInbound         |
-| 19 | PanelSettings      |
-| 20 | Fail2ban           |
-| 21 | Firewall           |
-| 22 | SSH                |
+| 0  | PortsCheck         |
+| 1  | DnsReset           |
+| 2  | Basics             |
+| 3  | CloudflareDel      |
+| 4  | Cloudflare         |
+| 5  | Acme               |
+| 6  | Nginx              |
+| 7  | DoH                |
+| 8  | FirewallBootstrap  |
+| 9  | OutblockedUpdate   |
+| 10 | BaseSetup          |
+| 11 | FullSetup          |
+| 12 | NginxRestart       |
+| 13 | NginxRestoreConfig |
+| 14 | XrayRestart        |
+| 15 | XrayRestoreDB      |
+| 16 | Bootstrap          |
+| 17 | XuiAuth            |
+| 18 | DelInbound         |
+| 19 | AddInbound         |
+| 20 | PanelSettings      |
+| 21 | Fail2ban           |
+| 22 | Firewall           |
+| 23 | SSH                |
+| 24 | DestroyServer      |
 
 The exact composition of actions depends on the operation being performed where
 one or a group of these actions are selected.
@@ -66,6 +68,7 @@ actions take precedence over the later ones.
 FullSetup = Fully provisions a server using "full_setup.yaml";
 BaseSetup = Prepares the base of server; used in FullSetup as "base_setup.yaml";
 Basics = Installs basic packages on the server using "basics_install.yaml";
+PortsCheck = Checks if xcplane-managed ports are free on the server or not using "check_ports.yaml";
 DnsReset = Resets DNS to Google & Cloudflare using "dns_reset.yaml";
 CloudflareDel = Deletes DNS records using "cloudflare_del.yaml";
 Cloudflare = Manages DNS records using "cloudflare_setup.yaml";
@@ -87,7 +90,7 @@ NginxRestart = Restarts Nginx as a corrective action using "nginx_restart.yaml";
 NginxRestoreConfig = Restores Nginx config file as a corrective action using "nginx_restore_config.yaml";
 XrayRestart = Restarts XUI panel as a corrective action using "xui_restart.yaml";
 XrayRestoreDB = Restores XUI DB as a corrective action using "xui_restore_db.yaml";
-
+DestroyServer = Destroys a Production server and turns it into Offgrid using "destroy_server.yaml";
 ```
 ## Passed variables to Ansible
 

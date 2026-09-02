@@ -40,12 +40,15 @@
   failed_when: "'573BFD6B3D8FBC641079A6ABABF5BD827BD9BF62' not in nginx_key_check.stdout"
 ########################################################
 - name: Nginx Task 5 - Add the official repository
-  ansible.builtin.apt_repository:
-    repo: "deb [signed-by=/usr/share/keyrings/nginx-archive-keyring.gpg] \
-    https://nginx.org/packages/ubuntu {{ ansible_facts.distribution_release }} nginx"
-    filename: nginx
+  ansible.builtin.deb822_repository:
+    uris: https://nginx.org/packages/ubuntu
+    suites: "{{ ansible_facts.distribution_release }}"
+    components: nginx
+    architectures: amd64
+    name: nginx
+    types: deb
     state: present
-    update_cache: true
+    signed_by: /usr/share/keyrings/nginx-archive-keyring.gpg
 ########################################################
 - name: Nginx Task 6 - Configure apt pinning
   ansible.builtin.copy:
@@ -65,7 +68,7 @@
 - name: Nginx Task 8 - Add DNS, UI and sub hostnames early to /etc/hosts
   ansible.builtin.blockinfile:
     path: /etc/hosts
-    marker: "# {mark} Ansible-managed Nginx hosts"
+    marker: "# {mark} xcplane-managed Nginx hosts"
     block: |
       127.0.0.1 {{ dns_hostname }} # dns_hostname
       ::1 {{ dns_hostname }} # dns_hostname

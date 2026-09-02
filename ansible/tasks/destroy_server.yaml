@@ -1,0 +1,143 @@
+---
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Tears down the xcplane installation on the specified server, including its
+# configuration and runtime state, and returns the server to an Offgrid state so
+# that a full setup can be performed again.
+#
+# This task leaves some packages and files such as rsync, curl, nnn, etc. and
+# certificate files acquired by ACME.
+#
+# This procedure is not a part of normal xcplane workflow, and exists for
+# development purposes.
+########################################################
+- name: Destruction Task 1 - Reset DNS
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/dns_reset.yaml"
+########################################################
+- name: Destruction Task 2 - Remove all server-related Cloudflare records
+  delegate_to: localhost
+  block:
+    - name: Destruction Task 2.1 - Delete server-related A DNS records
+      community.general.cloudflare_dns:
+        api_token: "{{ cloudflare_token }}"
+        zone: "{{ cloudflare_zone }}"
+        record: "{{ item }}"
+        type: A
+        state: absent
+      loop:
+        - "{{ dns_hostname }}"
+        - "{{ ui_hostname }}"
+        - "{{ sub_hostname }}"
+
+    - name: Destruction Task 2.2 - Delete server-related AAAA DNS records
+      community.general.cloudflare_dns:
+        api_token: "{{ cloudflare_token }}"
+        zone: "{{ cloudflare_zone }}"
+        record: "{{ item }}"
+        type: AAAA
+        state: absent
+      loop:
+        - "{{ dns_hostname }}"
+        - "{{ ui_hostname }}"
+        - "{{ sub_hostname }}"
+########################################################
+- name: Destruction Task 3 - Uninstall x-ui
+  ansible.builtin.command:
+    cmd: '/usr/local/bin/xui_uninstaller_script.sh'
+    # removes: '/usr/bin/x-ui'
+  failed_when: false
+  changed_when: false
+##########################################################
+- name: Destruction Task 4 - Remove DNS, UI and sub hostnames from /etc/hosts
+  ansible.builtin.blockinfile:
+    path: /etc/hosts
+    marker: "# {mark} xcplane-managed Nginx hosts"
+    block: |
+      127.0.0.1 {{ dns_hostname }} # dns_hostname
+      ::1 {{ dns_hostname }} # dns_hostname
+      127.0.0.1 {{ ui_hostname }} # ui_hostname
+      ::1 {{ ui_hostname }} # ui_hostname
+      127.0.0.1 {{ sub_hostname }} # sub_hostname
+      ::1 {{ sub_hostname }} # sub_hostname
+    state: absent
+########################################################
+- name: Destruction Task 5 - Stop and disable services
+  ansible.builtin.systemd_service:
+    enabled: false
+    daemon_reload: true
+    masked: false
+    state: stopped
+    name: "{{ item }}"
+  loop:
+    - nginx
+    - dnscrypt-proxy
+    - unbound
+    - update-resolver
+    - fail2ban
+########################################################
+- name: Destruction Task 6 - Nuke nftables
+  ansible.builtin.command: nft flush ruleset
+  changed_when: true
+########################################################
+- name: Destruction Task 7 - Remove and purge packages
+  ansible.builtin.apt:
+    pkg:
+      - nginx
+      - unbound
+      - dnscrypt-proxy
+      - fail2ban
+    purge: true
+    state: absent
+########################################################
+- name: Destruction Task 8 - Remove configs and scripts
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/nginx/conf.d
+    - /etc/apt/preferences.d/99nginx
+    - /etc/dnscrypt-proxy/dnscrypt-proxy.toml
+    - /etc/unbound/unbound.conf
+    - /etc/systemd/system/update-resolver.service
+    - /usr/local/bin/restore_DoH.sh
+    - /usr/local/bin/restore_publicDNS.sh
+    - /usr/local/bin/xui_uninstaller_script.sh
+    - /etc/inftables.d
+    - /etc/nftables.conf
+    - /etc/fail2ban
+    - /etc/x-ui
+    - /etc/ssh/sshd_config.d/00-ansible.conf
+    - /etc/systemd/system/ssh.socket.d
+########################################################
+- name: Destruction Task 9 - Remove the official nginx repository
+  ansible.builtin.deb822_repository:
+    uris: https://nginx.org/packages/ubuntu
+    suites: "{{ ansible_facts.distribution_release }}"
+    components: nginx
+    architectures: amd64
+    name: nginx
+    types: deb
+    state: absent
+    signed_by: /usr/share/keyrings/nginx-archive-keyring.gpg
+########################################################
+- name: Destruction Task 10 - Reload systemd and restart SSH socket
+  ansible.builtin.systemd_service:
+    name: ssh.socket
+    daemon_reload: true
+    state: restarted
+########################################################
+- name: Destruction Task 11 - Wait for SSH on port 22
+  ansible.builtin.wait_for:
+    host: "{{ ansible_host }}"
+    port: 22
+    timeout: 30
+  delegate_to: localhost
+########################################################
+- name: Destruction Task 12 - Switch Ansible to the new SSH port
+  ansible.builtin.set_fact:
+    ansible_port: 22
+########################################################
+- name: Destruction Task 13 - Reset SSH connection
+  ansible.builtin.meta: reset_connection
+########################################################

@@ -24,19 +24,19 @@ use crate::constants::{
     ANSIBLE_CFG, ANSIBLE_DIR, CF_AUTH, JSON_SUBLINKS_SUFFIX, MASTER_PLAYBOOK, OUTBLOCKED_UPDATE,
     PANEL_SETTINGS, SUB_PORT, SUBLINKS_SUFFIX, UI_PORT, UNBOUND_PORT,
 };
-use crate::daemon::{DaemonComm, DaemonRequest};
-use crate::db::mark_server_production;
+use crate::daemon::{DaemonComm, DaemonReply, DaemonRequest};
+use crate::db::{mark_server_offgrid, mark_server_production};
 use crate::nft::generate_nftops;
 use crate::types::{
-    BoxError, CFAuth, Inbound, KetServer, Secrets, SvcKind, WorkSpace, Xui, XuiToken,
+    BoxError, CFAuth, Inbound, KetServer, Secrets, SvcKind, TaskEntry, WorkSpace, Xui, XuiToken,
 };
 use crate::xui::db::{delete_xui_backups, last_xui_db};
 
 // All Ansible task filenames
 use crate::constants::{
     ACME, ADD_INBOUND, BASE_SETUP, BASICS, BOOTSTRAP, CLOUDFLARE, CLOUDFLARE_DEL, DEL_INBOUND,
-    DNS_RESET, DOH_SETUP, FAIL2BAN, FIREWALL, FIREWALL_BOOTSTRAP, FULL_SETUP, NGINX_FIX1,
-    NGINX_FIX2, NGINX_SETUP, SSH_SETUP, XRAY_FIX1, XRAY_FIX2, XUI_AUTH,
+    DESTROY_SERVER, DNS_RESET, DOH_SETUP, FAIL2BAN, FIREWALL, FIREWALL_BOOTSTRAP, FULL_SETUP,
+    NGINX_FIX1, NGINX_FIX2, NGINX_SETUP, PORTS_CHECK, SSH_SETUP, XRAY_FIX1, XRAY_FIX2, XUI_AUTH,
 };
 
 /// All the data need for running Ansible on a server
@@ -87,6 +87,7 @@ pub struct AnsibleVars {
     pub unbound_https_port: u16,          // defaults to UNBOUND_PORT
     pub ui_webport: u16,                  // defaults to UI_PORT
     pub sub_port: u16,                    // defaults to SUB_PORT
+    pub new_ports: Vec<u16>,              // prospective global & local ports
     pub nftops: HashMap<String, PathBuf>, // paths to all nft rule files
     pub inbound_data: Vec<Inbound>,       // ketserver.inbounds
     pub sublinks_suffix: &'static str,    // SUBLINKS_SUFFIX
@@ -147,33 +148,35 @@ impl AnsibleVars {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, EnumIter, AsRefStr)]
 #[repr(usize)]
 pub enum AnsibleAction {
-    DnsReset,           // id: 0
-    Basics,             // id: 1
-    CloudflareDel,      // id: 2
-    Cloudflare,         // id: 3
-    Acme,               // id: 4
-    Nginx,              // id: 5
-    DoH,                // id: 6
-    FirewallBootstrap,  // id: 7
-    OutblockedUpdate,   // id: 8
-    BaseSetup,          // id: 9 prepares everything up to 3XUI installation
-    FullSetup,          // id: 10 contains BaseSetup + every other needed action
-    NginxRestart,       // id: 11
-    NginxRestoreConfig, // id: 12
-    XrayRestart,        // id: 13
-    XrayRestoreDB,      // id: 14
-    Bootstrap,          // id: 15
-    XuiAuth,            // id: 16
-    DelInbound,         // id: 17
-    AddInbound,         // id: 18
-    PanelSettings,      // id: 19
-    Fail2ban,           // id: 20
-    Firewall,           // id: 21
+    PortsCheck,         // id: 0
+    DnsReset,           // id: 1
+    Basics,             // id: 2
+    CloudflareDel,      // id: 3
+    Cloudflare,         // id: 4
+    Acme,               // id: 5
+    Nginx,              // id: 6
+    DoH,                // id: 7
+    FirewallBootstrap,  // id: 8
+    OutblockedUpdate,   // id: 9
+    BaseSetup,          // id: 10 prepares everything up to 3XUI installation
+    FullSetup,          // id: 11 contains BaseSetup + every other needed action
+    NginxRestart,       // id: 12
+    NginxRestoreConfig, // id: 13
+    XrayRestart,        // id: 14
+    XrayRestoreDB,      // id: 15
+    Bootstrap,          // id: 16
+    XuiAuth,            // id: 17
+    DelInbound,         // id: 18
+    AddInbound,         // id: 19
+    PanelSettings,      // id: 20
+    Fail2ban,           // id: 21
+    Firewall,           // id: 22
     /*
     SSH is critical and we commit such a destructive change at the end,
     so that in case of a failure we are not locked out for a re-run.
     */
-    SSH, // id: 22
+    SSH,           // id: 23
+    DestroyServer, // id: 24
 }
 
 /// A struct holding a vector of task filenames that correspond to a series of
@@ -266,6 +269,7 @@ impl AnsibleAction {
     /// Maps the action to its task filename
     pub fn taskname(&self) -> &'static str {
         match self {
+            AnsibleAction::PortsCheck => PORTS_CHECK,
             AnsibleAction::DnsReset => DNS_RESET,
             AnsibleAction::Basics => BASICS,
             AnsibleAction::CloudflareDel => CLOUDFLARE_DEL,
@@ -289,6 +293,7 @@ impl AnsibleAction {
             AnsibleAction::NginxRestoreConfig => NGINX_FIX2,
             AnsibleAction::XrayRestart => XRAY_FIX1,
             AnsibleAction::XrayRestoreDB => XRAY_FIX2,
+            AnsibleAction::DestroyServer => DESTROY_SERVER,
         }
     }
 }
@@ -413,7 +418,7 @@ impl AnsibleRun {
             output
         };
 
-        // Writing the output to log file
+        // Writing the output to log files
         fs::write(&ansible_data.stdout_path, &output.stdout).await?;
         fs::write(&ansible_data.stderr_path, &output.stderr).await?;
 
@@ -439,9 +444,7 @@ impl AnsibleRun {
         // Further security in depth
         set_permissions(&server_dir, Permissions::from_mode(0o700))?;
 
-        let mut ansible_inbound_data: Vec<Inbound> = vec![];
-
-        ansible_inbound_data = server
+        let ansible_inbound_data = server
             .inbounds
             .iter()
             .filter(|inb| inb.name != SvcKind::super_name())
@@ -486,6 +489,54 @@ impl AnsibleRun {
             false
         };
 
+        // While the ports managed by xcplane are already checked for any clash
+        // with each other, they must be checked on the server itself too, as
+        // there might be local services running on those ports.
+        let this_ansible_conn = server.ansible_conn.load_full().ok_or::<BoxError>(
+            format!(
+                "Couldn't unwrap AnsibleConn of server {} for AnsibleVars.",
+                server.name
+            )
+            .into(),
+        )?;
+
+        let mut new_ports = vec![];
+        // ssh_port is checked when it is a different port than
+        // ansible_port. Also, NGINX_PORT is a dedicated port and is always
+        // excluded.
+        if this_ansible_conn.ansible_port != Some(server.ssh_port) {
+            new_ports.push(server.ssh_port);
+        }
+
+        if is_full_setup {
+            // In a full setup, [existing] inbound ports don't need to be
+            // included since the panel is uninstalled first anyway
+            new_ports.extend([UNBOUND_PORT, UI_PORT, SUB_PORT]);
+        } else {
+            // Checking is needed if this is a Rebase. The other remote
+            // operation types don't need it.
+            if let Some(data) = &self.rebase_data {
+                // The added inbounds' ports must be included provided that they
+                // are not deleted first.
+                // UNBOUND_PORT, UI_PORT and SUB_PORT have already been checked
+                // during full setup.
+                let mut added_inbound_ports = data
+                    .added_inbounds
+                    .iter()
+                    .map(|inb| inb.port)
+                    .collect::<Vec<_>>();
+                let removed_inbound_ports = data
+                    .removed_inbounds
+                    .iter()
+                    .map(|inb| inb.port)
+                    .collect::<Vec<_>>();
+
+                added_inbound_ports.retain(|p| !removed_inbound_ports.contains(p));
+
+                new_ports.append(&mut added_inbound_ports);
+            }
+        }
+
         // Computing which nft rule operations should be included
         let nftops = generate_nftops(&self.actions, workspace.clone(), server.clone()).await?;
 
@@ -510,6 +561,7 @@ impl AnsibleRun {
             ui_webport: UI_PORT,
             sub_port: SUB_PORT,
             unbound_https_port: UNBOUND_PORT,
+            new_ports,
             nftops,
             inbound_data: ansible_inbound_data,
             sublinks_suffix: SUBLINKS_SUFFIX,
@@ -520,13 +572,6 @@ impl AnsibleRun {
 
         // Creating the inventory file
         let mut ansible_conns = HashMap::new();
-        let this_ansible_conn = server.ansible_conn.load_full().ok_or::<BoxError>(
-            format!(
-                "Couldn't unwrap AnsibleConn of server {} for AnsibleVars.",
-                server.name
-            )
-            .into(),
-        )?;
         ansible_conns.insert(server.name.clone(), this_ansible_conn);
         // Including localhost as well
         ansible_conns.insert(
@@ -643,15 +688,16 @@ impl AnsibleRun {
 /// Fully provisions a server for production using Ansible
 pub async fn full_setup(
     conn: Arc<SqlConn>,
-    txd: Option<Sender<DaemonRequest>>,
+    txd: Sender<DaemonRequest>,
     server: Arc<KetServer>,
     workspace: Arc<WorkSpace>,
 ) -> Result<(), BoxError> {
     warn!(
         "\n######################################################################\n\
         # THIS ACTION WILL ERASE DATA ON THE SERVER. If this is not desired, #\n\
-        # you have 10 seconds to abort it by pressing Ctrl + C               #\n\
-        #                                                                    #\n\
+        # you have 10 seconds to abort it by pressing Ctrl + C or sending a  #\n\
+        # shutdown/restart/reload to the daemon.                             #\n\
+	#                                                                    #\n\
         # The controller's SSH public key must be installed on the server    #\n\
         # and SSH must be listening on port 22.                              #\n\
         ######################################################################",
@@ -680,6 +726,7 @@ pub async fn full_setup(
     match ansible_run.run().await {
         Ok(res) => {
             if res.output.status.success() {
+                // Reading xui_token from Ansible-produced files
                 let cred_file = workspace
                     .dirs
                     .data_dir
@@ -695,25 +742,40 @@ pub async fn full_setup(
                 delete_xui_backups(&workspace, &server).await??;
 
                 let elapsed_time = start_time.elapsed();
-                // Reload if we are told to
-                if let Some(tx) = txd {
-                    info!(
-                        spent_time = elapsed_time.as_secs(),
-                        "full setup completed--reloading"
-                    );
-                    // Now we send a manual Reload command to the daemon, and
-                    // the updated cloud will be carried to the next daemon
-                    // cycle.
-                    let (reply_tx, reply_rx) = oneshot::channel();
-                    let request = DaemonRequest {
-                        reply: reply_tx,
-                        command: DaemonComm::Reload,
-                    };
 
-                    tx.send(request).await?;
-                    let _dreply = reply_rx.await??;
-                } else {
-                    info!(spent_time = elapsed_time.as_secs(), "full setup completed");
+                // Delete the full setup entry from the taskmap, and Reload if
+                // there is not any other running full setup or destruction task
+                let (inquiry_tx, inquiry_rx) = oneshot::channel();
+                let request = DaemonRequest {
+                    reply: inquiry_tx,
+                    command: DaemonComm::SetupInquiry(TaskEntry::FullSetup(server)),
+                };
+
+                txd.send(request).await?;
+
+                if let DaemonReply::SetupInquiry(found) = inquiry_rx.await?? {
+                    if found {
+                        // Daemon Reload will be left to the last running full setup
+                        // or destruction task.
+                        warn!(
+                            spent_time = elapsed_time.as_secs(),
+                            reason = "another full setup or destruction task is running",
+                            "completed--reload is delayed"
+                        );
+                    } else {
+                        warn!(spent_time = elapsed_time.as_secs(), "completed--reloading");
+                        // Now we send a manual Reload command to the daemon, and
+                        // the updated cloud will be carried to the next daemon
+                        // cycle.
+                        let (reload_tx, reload_rx) = oneshot::channel();
+                        let request = DaemonRequest {
+                            reply: reload_tx,
+                            command: DaemonComm::Reload,
+                        };
+
+                        txd.send(request).await?;
+                        let _dreply = reload_rx.await??;
+                    }
                 }
             } else {
                 error!(
@@ -723,6 +785,90 @@ pub async fn full_setup(
                 );
             }
         }
+
+        Err(e) => {
+            error!(error = e, "failed")
+        }
+    }
+
+    Ok(())
+}
+// =============================================================
+/// Destroys a Production server and turns it into Offgrid. Note that this is
+/// not part of xcplane workflow, as changes to the declarative cloud
+/// configuration are already handled through xcplane reconciliation modes.
+pub async fn destroy_server(
+    conn: Arc<SqlConn>,
+    server: Arc<KetServer>,
+    workspace: Arc<WorkSpace>,
+    txd: Sender<DaemonRequest>,
+) -> Result<(), BoxError> {
+    warn!(
+        "\n#########################################################################\n\
+        # THE SERVER IS ABOUT TO LOSE ITS IDENTITY AND ALL ITS DATA. If this is #\n\
+        # not desired, you have 10 seconds to abort it by pressing Ctrl + C or  #\n\
+        # sending a shutdown/restart/reload to the daemon.                      #\n\
+        #########################################################################",
+    );
+    let mut ticker = intrvl(Duration::from_secs(1));
+    for i in 0..11 {
+        ticker.tick().await;
+        warn!("{i}");
+    }
+
+    let ansible_run = AnsibleRun {
+        workspace: workspace.clone(),
+        server: server.clone(),
+        actions: vec![AnsibleAction::DestroyServer],
+        stream_it: true,
+        rebase_data: None,
+    };
+
+    warn!("proceeding");
+
+    match ansible_run.run().await {
+        Ok(res) => {
+            if res.output.status.success() {
+                // Change the state in the DB and cloud config to Offgrid
+                mark_server_offgrid(workspace, conn, server.clone()).await?;
+
+                // Delete the entry from the taskmap, and Reload if there is not
+                // any other unfinished full setup or destruction operation
+                let (inquiry_tx, inquiry_rx) = oneshot::channel();
+                let request = DaemonRequest {
+                    reply: inquiry_tx,
+                    command: DaemonComm::SetupInquiry(TaskEntry::DestroyServer(server)),
+                };
+
+                txd.send(request).await?;
+
+                if let DaemonReply::SetupInquiry(found) = inquiry_rx.await?? {
+                    if found {
+                        // The last running full setup or destruction operation
+                        // will do a reload with no deadlock, as the inquirer's
+                        // task entry is removed from the taskmap upon the inquiry.
+                        warn!(
+                            reason = "another full setup or destruction task is running",
+                            "completed--reload is delayed"
+                        );
+                    } else {
+                        warn!("completed--reloading");
+
+                        let (reload_tx, reload_rx) = oneshot::channel();
+                        let request = DaemonRequest {
+                            reply: reload_tx,
+                            command: DaemonComm::Reload,
+                        };
+
+                        txd.send(request).await?;
+                        let _dreply = reload_rx.await??;
+                    }
+                }
+            } else {
+                error!(stdout = %res.stdout.display(), stderr = %res.stderr.display(), "failed");
+            }
+        }
+
         Err(e) => {
             error!(error = e, "failed")
         }
